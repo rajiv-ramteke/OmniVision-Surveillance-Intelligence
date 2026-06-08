@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.pyc
+
+# Model files
+*.pt
+*.onnx
+
+# Output data
+static/output/
+*.mp4
+*.avi
+
+# Environment variables
+.env
+
+# OS specific
+.DS_Store
+Thumbs.db
