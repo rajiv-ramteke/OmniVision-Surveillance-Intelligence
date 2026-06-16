@@ -1,22 +1,29 @@
 # config/config.py
 
 # YOLO Configuration
-# yolov8n = nano (fastest, lowest accuracy)
-# yolov8s = small (good balance of speed and accuracy) ← recommended
-# yolov8m = medium (higher accuracy, slightly slower)
-MODEL_NAME = 'yolov8s.pt'       # Upgraded from nano to small for better accuracy
-CONFIDENCE_THRESHOLD = 0.65     # Raised from 0.5 → filters out false positives
-IOU_THRESHOLD = 0.45            # Non-Maximum Suppression threshold (lower = stricter)
+# yolov8n = nano (Super fast, but low accuracy/guesses wrong)
+# yolov8s = small (Perfect middle ground: high accuracy, smooth speed)
+# yolov8m = medium (Highly accurate but causes lag on standard computers)
+MODEL_NAME = 'yolov8s-world.pt'
+
+# Read custom classes from models/classes.txt
+import os
+classes_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'classes.txt')
+with open(classes_file, 'r') as f:
+    CUSTOM_CLASSES = [line.strip() for line in f if line.strip()]
+
+IMAGE_SIZE = 960                # Higher resolution for better small object accuracy (default was 640)
+CONFIDENCE_THRESHOLD = 0.40     # Lowered to 40% to detect small objects that have lower confidence
+IOU_THRESHOLD = 0.45            # Non-Maximum Suppression threshold (tighter box overlap)
 
 # Alert Configuration
-# Leave ALERT_CLASSES empty [] to get notifications for ALL detected objects
-# Or specify a list e.g. ['person', 'car', 'dog'] to filter specific classes
+# Leaving ALERT_CLASSES empty [] means you get voice & mobile alerts for ALL detected objects
 ALERT_CLASSES = []         # [] = alert on ALL objects
-COOLDOWN_TIME = 2          # Minimum seconds between alerts per object class
+COOLDOWN_TIME = 60         # 60s between ntfy notifications per class (saves daily quota)
 
 # Notification Settings
 # Add your ntfy topic here to enable mobile notifications (e.g., 'my_security_alerts_123')
-NTFY_TOPIC = 'notify-rajiv'
+NTFY_TOPIC = 'rajiv-notification'
 
 # Logging and Snapshot Settings
 SAVE_SNAPSHOTS = True

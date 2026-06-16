@@ -1,6 +1,8 @@
 import cv2
 import sys
 import os
+import time
+from collections import deque
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -8,60 +10,100 @@ from config import config
 from app.camera import CameraStream
 from app.detection import ObjectDetector
 from app.alerts import AlertSystem
-from app.utils import draw_bounding_box
+from app.utils import draw_bounding_box, draw_stats, save_snapshot, log_detection_csv
+
 
 def main():
     print("Initializing Real-Time Object Detection System...")
-    
+
     try:
-        camera = CameraStream(source=0) # 0 for default webcam
+        camera = CameraStream(source=0)  # 0 for default webcam
     except ValueError as e:
         print(e)
         return
 
-    detector = ObjectDetector()
+    detector    = ObjectDetector()
     alert_system = AlertSystem()
-    
+
     print("System started successfully. Press 'q' to quit.")
-    
+
+    # ── Smooth FPS using a rolling average over the last 30 frames ───────────
+    frame_times = deque(maxlen=30)
+    prev_time   = time.time()
+    last_frame_time = time.time()
+
     try:
         while True:
             ret, frame = camera.get_frame()
-            if not ret:
-                print("Failed to grab frame. Exiting...")
-                break
-                
-            # Run detection
-            detections = detector.detect(frame)
+            if not ret or frame is None:
+                # Frame not ready yet — yield briefly and retry
+                time.sleep(0.005)
+                # If no frame has been received for 3 seconds, assume camera is off/disconnected
+                if time.time() - last_frame_time > 3.0:
+                    print("\nCamera disconnected or turned off. Stopping application...")
+                    break
+                continue
             
-            # Process detections
+            last_frame_time = time.time()
+
+            # ── Run detection (async — returns last inference result instantly) ──
+            detections = detector.detect(frame)
+
+            # ── FPS calculation ───────────────────────────────────────────────
+            current_time = time.time()
+            frame_times.append(current_time - prev_time)
+            prev_time = current_time
+            fps = 1.0 / (sum(frame_times) / len(frame_times)) if frame_times else 0.0
+
+            # ── Process detections ───────────────────────────────────────────
+            object_counts = {}
             for det in detections:
                 class_name = det["class_name"]
                 confidence = det["confidence"]
-                box = det["box"]
-                
+                box        = det["box"]
+                track_id   = det.get("track_id")
+
+                # Update counts
+                object_counts[class_name] = object_counts.get(class_name, 0) + 1
+
                 # Draw bounding box
-                frame = draw_bounding_box(frame, box, class_name, confidence)
-                
-                # Check for alerts:
-                # If ALERT_CLASSES is empty, alert on ALL detected objects
-                # Otherwise only alert on the specified classes
+                frame = draw_bounding_box(frame, box, class_name, confidence, track_id)
+
+                # ── SOUND: beep + speak name on EVERY detection (0.5 s per-class cooldown)
                 if not config.ALERT_CLASSES or class_name in config.ALERT_CLASSES:
-                    alert_system.trigger_alert(class_name, confidence)
-                    
-            # Display frame
+                    alert_system.sound_alert(class_name)
+
+                # ── HEAVY ALERTS: CSV / snapshot / ntfy (longer 2 s cooldown)
+                if not config.ALERT_CLASSES or class_name in config.ALERT_CLASSES:
+                    current_t  = time.time()
+                    last_alert = alert_system.last_alert_time.get(class_name, 0)
+
+                    if current_t - last_alert >= config.COOLDOWN_TIME:
+                        if config.LOG_CSV:
+                            log_detection_csv(config.CSV_LOG_FILE, class_name, confidence)
+                        if config.SAVE_SNAPSHOTS:
+                            save_snapshot(frame, config.SNAPSHOT_DIR, class_name)
+                        alert_system.trigger_alert(class_name, confidence)
+
+            # ── Draw live stats overlay ───────────────────────────────────────
+            if config.SHOW_STATS:
+                frame = draw_stats(frame, fps, object_counts)
+
+            # ── Display frame ─────────────────────────────────────────────────
             cv2.imshow('Real-Time Object Detection System', frame)
-            
-            # Exit condition
+
+            # Exit condition — waitKey(1) keeps the window responsive
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-                
+
     except KeyboardInterrupt:
         print("Interrupted by user.")
     finally:
         print("Cleaning up...")
+        detector.stop()
         camera.release()
         cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     main()

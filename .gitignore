@@ -17,3 +17,8 @@ static/output/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Environments
+.venv/
+env/
+

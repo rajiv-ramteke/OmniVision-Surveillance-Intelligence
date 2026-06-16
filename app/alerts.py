@@ -2,6 +2,7 @@ import time
 import pyttsx3
 import threading
 import queue
+import winsound
 import requests
 import os
 import sys
@@ -10,21 +11,75 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
+# ── Per-class beep frequencies (Hz) ───────────────────────────────────────────
+# Each object class gets its own distinct pitch so you can recognise the
+# object by ear the instant it's detected.
+BEEP_FREQ = {
+    'person':     880,   # A5  – high, urgent
+    'car':        660,   # E5
+    'truck':      550,   # C#5
+    'bus':        500,   # B4
+    'motorcycle': 700,   # F5
+    'bicycle':    620,   # Eb5
+    'dog':        750,   # F#5
+    'cat':        800,   # G#5
+    'knife':      1000,  # B5  – danger
+    'gun':        1000,  # B5  – danger
+    'fire':       950,   # A#5 – danger
+    'cell phone': 440,   # A4
+    'laptop':     480,   # B4-ish
+    'backpack':   420,   # Ab4
+}
+DEFAULT_BEEP_FREQ = 520   # fallback for anything not in the map
+BEEP_DURATION_MS  = 110   # short, punchy beep
+
+
 class AlertSystem:
     def __init__(self):
+        # Cooldown for FULL alerts (snapshots, CSV, ntfy) — long
         self.last_alert_time = {}
+        # Cooldown for SOUND ONLY (beep + voice) — short, fires on every detection
+        self._last_sound_time = {}
+        self._sound_cooldown  = 0.5   # seconds between sounds per class
 
-        # pyttsx3 is NOT thread-safe — run it on a single dedicated worker thread
-        self._voice_queue = queue.Queue()
+        # ── Voice queue: maxsize=1 so we NEVER queue a backlog.
+        # Newest object name always replaces any stale queued item.
+        self._voice_queue = queue.Queue(maxsize=1)
         self._voice_thread = threading.Thread(target=self._voice_worker, daemon=True)
         self._voice_thread.start()
-        print("[Voice] Text-to-speech engine ready.")
-        
+
+        print("[Voice] Text-to-speech engine ready — speaks object names aloud.")
+        print("[Beep]  Sound alert system ready (using system MessageBeep).")
+
+        # Send a startup ping so you know ntfy is connected
+        if config.NTFY_TOPIC:
+            threading.Thread(target=self._send_startup_ping, daemon=True).start()
+
+    def _play_beep(self, class_name):
+        """Instant, non-blocking standard Windows beep."""
+        try:
+            winsound.MessageBeep(-1)
+        except Exception as e:
+            print(f"[Beep] Error: {e}")
+
+    # ── Voice worker ─────────────────────────────────────────────────────────
     def _voice_worker(self):
-        """Dedicated background thread that processes voice announcements one at a time."""
+        """
+        Dedicated thread: speaks the object name aloud using Windows TTS.
+        Uses a maxsize=1 queue so it always speaks the *latest* detected
+        object and never builds up a long backlog.
+        """
         engine = pyttsx3.init()
-        engine.setProperty('rate', 160)   # Speaking speed
-        engine.setProperty('volume', 1.0) # Max volume
+        engine.setProperty('rate', 200)    # Faster = snappier announcements
+        engine.setProperty('volume', 1.0)  # Max volume
+
+        # Try to pick a clear English voice if available
+        voices = engine.getProperty('voices')
+        for v in voices:
+            if 'english' in v.name.lower() or 'zira' in v.name.lower() or 'david' in v.name.lower():
+                engine.setProperty('voice', v.id)
+                break
+
         while True:
             text = self._voice_queue.get()
             if text is None:
@@ -37,60 +92,159 @@ class AlertSystem:
             finally:
                 self._voice_queue.task_done()
 
+    def _speak(self, object_name):
+        """
+        Non-blocking speech: speak just the object name.
+        If the voice thread is still busy, replace the queued item with
+        the newest name so we never lag behind detections.
+        """
+        # Drain the queue first (discard stale item)
+        while not self._voice_queue.empty():
+            try:
+                self._voice_queue.get_nowait()
+                self._voice_queue.task_done()
+            except queue.Empty:
+                break
+        # Now put the fresh name
+        try:
+            self._voice_queue.put_nowait(object_name)
+        except queue.Full:
+            pass  # still busy — skip this one
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def sound_alert(self, class_name):
+        """
+        Called on EVERY detection frame.
+        Speaks the object name with a SHORT per-class cooldown (0.5 s).
+        Beep is disabled — voice only.
+        """
+        now = time.time()
+        if now - self._last_sound_time.get(class_name, 0) < self._sound_cooldown:
+            return  # too soon for this class — skip
+        self._last_sound_time[class_name] = now
+
+        # Speak the object name (beep removed)
+        self._speak(class_name)
+
     def trigger_alert(self, class_name, confidence=None):
+        """
+        Called for heavy alerts: CSV logging, snapshots, ntfy notification.
+        Uses the longer COOLDOWN_TIME from config (default 2 s).
+        """
         current_time = time.time()
-        
-        # Check cooldown per class
+
         if class_name in self.last_alert_time:
             if current_time - self.last_alert_time[class_name] < config.COOLDOWN_TIME:
-                return # Still in cooldown
-                
+                return  # Still in cooldown
+
         self.last_alert_time[class_name] = current_time
-        
-        # Enqueue voice announcement (safe — one thread handles all speech)
-        self._voice_queue.put(f"{class_name} detected")
-        
-        # Send mobile notification asynchronously
+
+        # Mobile notification in background
         threading.Thread(
             target=self._send_mobile_notification,
             args=(class_name, confidence),
             daemon=True
         ).start()
-        
-            
-    def _send_mobile_notification(self, class_name, confidence=None):
-        conf_str = f" ({int(confidence * 100)}% confidence)" if confidence else ""
-        print(f"\n[ALERT] {class_name.upper()} detected{conf_str}")
-        
-        if config.NTFY_TOPIC:
-            try:
-                url = f"https://ntfy.sh/{config.NTFY_TOPIC}"
-                message = f"{class_name.capitalize()} detected{conf_str}."
 
-                # Pick an emoji tag based on the object class
-                tag_map = {
-                    'person': 'bust_in_silhouette',
-                    'car': 'red_car',
-                    'dog': 'dog',
-                    'cat': 'cat',
-                    'knife': 'hocho',
-                    'gun': 'rotating_light',
-                    'fire': 'fire',
-                    'cell phone': 'iphone',
-                    'laptop': 'computer',
-                    'backpack': 'school_satchel',
-                }
-                tag = tag_map.get(class_name, 'eyes')  # default fallback emoji
-                
-                headers = {
-                    "Title": f"Security Alert: {class_name.capitalize()} Detected",
-                    "Tags": f"warning,{tag}",
-                    "Priority": "high"
-                }
-                response = requests.post(url, data=message.encode('utf-8'), headers=headers)
+    # ── Mobile notification ───────────────────────────────────────────────────
+
+    # Danger-level classes get 'urgent' priority on ntfy
+    _URGENT_CLASSES = {'knife', 'gun', 'fire', 'scissors'}
+
+    # Full emoji tag map for ntfy
+    _TAG_MAP = {
+        'person':       'bust_in_silhouette',
+        'car':          'red_car',
+        'truck':        'truck',
+        'bus':          'bus',
+        'motorcycle':   'motorcycle',
+        'bicycle':      'bike',
+        'dog':          'dog',
+        'cat':          'cat',
+        'knife':        'hocho',
+        'gun':          'rotating_light',
+        'fire':         'fire',
+        'scissors':     'scissors',
+        'cell phone':   'iphone',
+        'laptop':       'computer',
+        'backpack':     'school_satchel',
+        'handbag':      'handbag',
+        'bottle':       'bottle_with_popping_cork',
+        'cup':          'coffee',
+        'book':         'books',
+        'keyboard':     'keyboard',
+        'mouse':        'mouse',
+        'tv':           'tv',
+        'remote':       'joystick',
+        'clock':        'clock1',
+        'chair':        'chair',
+        'umbrella':     'umbrella',
+        'suitcase':     'luggage',
+    }
+
+    def _send_startup_ping(self):
+        """Sends a one-time startup notification so you know ntfy is working."""
+        try:
+            url = f"https://ntfy.envs.net/{config.NTFY_TOPIC}"
+            import datetime
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            requests.post(
+                url,
+                data=f"System ONLINE at {ts} - Watching for objects...".encode('utf-8'),
+                headers={
+                    "Title":    "Object Detection System Online",
+                    "Tags":     "white_check_mark,camera",
+                    "Priority": "default",
+                },
+                timeout=8
+            )
+            print(f"[ntfy] Startup ping sent to ntfy.envs.net/{config.NTFY_TOPIC}")
+        except Exception as e:
+            print(f"[ntfy] Startup ping failed: {e}")
+
+    def _send_mobile_notification(self, class_name, confidence=None):
+        """Sends a push notification to ntfy with retry on failure."""
+        import datetime
+        conf_str = f" — {int(confidence * 100)}% confident" if confidence else ""
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        conf_pct  = int(confidence * 100) if confidence else 0
+
+        print(f"\n[ALERT] {class_name.upper()} detected{conf_str}")
+
+        if not config.NTFY_TOPIC:
+            return
+
+        url      = f"https://ntfy.envs.net/{config.NTFY_TOPIC}"
+        # Put emoji in the body (UTF-8 safe) NOT in headers (latin-1 only — causes crash)
+        message  = f"[ALERT] {class_name.capitalize()} detected at {timestamp}{conf_str}."
+        tag      = self._TAG_MAP.get(class_name, 'eyes')
+        priority = "urgent" if class_name in self._URGENT_CLASSES else "high"
+
+        headers = {
+            "Title":    f"{class_name.capitalize()} Detected!",
+            "Tags":     f"warning,{tag}",
+            "Priority": priority,
+        }
+
+        # Try up to 2 times in case of transient network error
+        for attempt in range(1, 3):
+            try:
+                response = requests.post(
+                    url,
+                    data=message.encode('utf-8'),
+                    headers=headers,
+                    timeout=6          # don't hang the thread
+                )
                 if response.status_code == 200:
-                    print(f"[ntfy] Mobile notification sent for: {class_name}")
+                    print(f"[ntfy] ✓ Sent: {class_name} ({conf_pct}%)")
+                    return
                 else:
-                    print(f"[ntfy] Failed to send notification: {response.text}")
+                    print(f"[ntfy] Attempt {attempt} failed ({response.status_code}): {response.text[:80]}")
+            except requests.exceptions.Timeout:
+                print(f"[ntfy] Attempt {attempt} timed out")
             except Exception as e:
-                print(f"[ntfy] Notification error: {e}")
+                print(f"[ntfy] Attempt {attempt} error: {e}")
+
+        print(f"[ntfy] ✗ All attempts failed for: {class_name}")
+
