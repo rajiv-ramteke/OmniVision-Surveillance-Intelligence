@@ -13,7 +13,6 @@ import sys
 import os
 
 # Config
-HF_USERNAME = "rajiv-ramteke"
 SPACE_NAME  = "Real-Time-Object-Detection"
 SPACE_DIR   = os.path.join(os.path.dirname(__file__), "hf_spaces")
 
@@ -41,9 +40,15 @@ def main():
     login()
 
     api = HfApi()
+    try:
+        user_info = api.whoami()
+        hf_username = user_info["name"]
+    except Exception:
+        # Fallback if login fails or token is read-only
+        hf_username = input("Enter your HuggingFace username: ").strip()
 
     # 3. Create Space
-    repo_id = HF_USERNAME + "/" + SPACE_NAME
+    repo_id = hf_username + "/" + SPACE_NAME
     print("\n[SPACE] Creating Space: " + repo_id)
     try:
         api.create_repo(
