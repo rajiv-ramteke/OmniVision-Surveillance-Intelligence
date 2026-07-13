@@ -10,6 +10,7 @@ import numpy as np
 from ultralytics import YOLO
 from PIL import Image
 import time
+import os
 
 # ── Constants ────────────────────────────────────────────────────────────────
 CUSTOM_CLASSES = [
@@ -239,4 +240,4 @@ with gr.Blocks(css=css, theme=gr.themes.Soft(), title="Object Detection System")
     gr.Markdown(f"_{classes_text}_")
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
