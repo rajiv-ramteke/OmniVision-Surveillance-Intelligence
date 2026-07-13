@@ -11,7 +11,7 @@ from app.camera import CameraStream
 from app.detection import ObjectDetector
 from app.alerts import AlertSystem
 from app.utils import draw_bounding_box, draw_stats, save_snapshot, log_detection_csv
-from app import cloud_storage
+from app.recorder import ClipRecorder, ContinuousRecorder
 
 
 def main():
@@ -26,8 +26,14 @@ def main():
     detector     = ObjectDetector()
     alert_system = AlertSystem()
 
-    # Start Google Drive background uploader (only if enabled in config)
-    cloud_storage.start()
+    # ── Detect camera resolution & FPS for recorders ──────────────────────────
+    cam_w   = int(camera.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    cam_h   = int(camera.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cam_fps = camera.cap.get(cv2.CAP_PROP_FPS) or 20.0
+
+    # ── Initialise recorders (only if enabled in config) ──────────────────────
+    clip_recorder = ClipRecorder(cam_fps, cam_w, cam_h) if config.RECORD_CLIPS else None
+    cont_recorder = ContinuousRecorder(cam_fps, cam_w, cam_h) if config.CONTINUOUS_RECORD else None
 
     print("System started successfully. Press 'q' to quit.")
 
@@ -47,8 +53,14 @@ def main():
                     print("\nCamera disconnected or turned off. Stopping application...")
                     break
                 continue
-            
+
             last_frame_time = time.time()
+
+            # ── Feed raw frame to recorders (before annotation) ───────────────
+            if clip_recorder:
+                clip_recorder.push_frame(frame)
+            if cont_recorder:
+                cont_recorder.push_frame(frame)
 
             # ── Run detection (async — returns last inference result instantly) ──
             detections = detector.detect(frame)
@@ -73,11 +85,11 @@ def main():
                 # Draw bounding box
                 frame = draw_bounding_box(frame, box, class_name, confidence, track_id)
 
-                # ── SOUND: beep + speak name on EVERY detection (0.5 s per-class cooldown)
+                # ── SOUND: speak name on EVERY detection (0.5 s per-class cooldown)
                 if not config.ALERT_CLASSES or class_name in config.ALERT_CLASSES:
                     alert_system.sound_alert(class_name)
 
-                # ── HEAVY ALERTS: CSV / snapshot / ntfy (longer 2 s cooldown)
+                # ── HEAVY ALERTS: CSV / snapshot / ntfy — cooldown managed inside trigger_alert()
                 if not config.ALERT_CLASSES or class_name in config.ALERT_CLASSES:
                     current_t  = time.time()
                     last_alert = alert_system.last_alert_time.get(class_name, 0)
@@ -86,9 +98,10 @@ def main():
                         if config.LOG_CSV:
                             log_detection_csv(config.CSV_LOG_FILE, class_name, confidence)
                         if config.SAVE_SNAPSHOTS:
-                            snapshot_path = save_snapshot(frame, config.SNAPSHOT_DIR, class_name)
-                            # Queue for Google Drive upload (non-blocking)
-                            cloud_storage.upload_snapshot(snapshot_path)
+                            save_snapshot(frame, config.SNAPSHOT_DIR, class_name)
+                        if clip_recorder:
+                            clip_recorder.trigger(class_name)
+                        # trigger_alert sends the ntfy notification and records the timestamp
                         alert_system.trigger_alert(class_name, confidence)
 
             # ── Draw live stats overlay ───────────────────────────────────────
@@ -107,6 +120,10 @@ def main():
     finally:
         print("Cleaning up...")
         detector.stop()
+        if clip_recorder:
+            clip_recorder.stop()
+        if cont_recorder:
+            cont_recorder.stop()
         camera.release()
         cv2.destroyAllWindows()
 

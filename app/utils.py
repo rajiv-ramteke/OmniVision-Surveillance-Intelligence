@@ -104,9 +104,11 @@ def save_snapshot(frame, snapshot_dir, class_name):
 
 def log_detection_csv(csv_file, class_name, confidence):
     """Logs the detection event to a CSV file."""
-    os.makedirs(os.path.dirname(csv_file), exist_ok=True)
-    file_exists = os.path.exists(csv_file)
+    # Safely resolve the directory — handles both 'dir/file.csv' and 'file.csv'
+    csv_dir = os.path.dirname(os.path.abspath(csv_file))
+    os.makedirs(csv_dir, exist_ok=True)
 
+    file_exists = os.path.exists(csv_file)
     with open(csv_file, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:

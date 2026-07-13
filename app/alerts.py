@@ -2,7 +2,6 @@ import time
 import pyttsx3
 import threading
 import queue
-import winsound
 import requests
 import os
 import sys
@@ -11,36 +10,14 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
-# ── Per-class beep frequencies (Hz) ───────────────────────────────────────────
-# Each object class gets its own distinct pitch so you can recognise the
-# object by ear the instant it's detected.
-BEEP_FREQ = {
-    'person':     880,   # A5  – high, urgent
-    'car':        660,   # E5
-    'truck':      550,   # C#5
-    'bus':        500,   # B4
-    'motorcycle': 700,   # F5
-    'bicycle':    620,   # Eb5
-    'dog':        750,   # F#5
-    'cat':        800,   # G#5
-    'knife':      1000,  # B5  – danger
-    'gun':        1000,  # B5  – danger
-    'fire':       950,   # A#5 – danger
-    'cell phone': 440,   # A4
-    'laptop':     480,   # B4-ish
-    'backpack':   420,   # Ab4
-}
-DEFAULT_BEEP_FREQ = 520   # fallback for anything not in the map
-BEEP_DURATION_MS  = 110   # short, punchy beep
-
 
 class AlertSystem:
     def __init__(self):
         # Cooldown for FULL alerts (snapshots, CSV, ntfy) — long
         self.last_alert_time = {}
-        # Cooldown for SOUND ONLY (beep + voice) — short, fires on every detection
+        # Cooldown for SOUND ONLY (voice) — short, fires on every detection
         self._last_sound_time = {}
-        self._sound_cooldown  = 0.5   # seconds between sounds per class
+        self._sound_cooldown  = 0.5   # seconds between voice alerts per class
 
         # ── Voice queue: maxsize=1 so we NEVER queue a backlog.
         # Newest object name always replaces any stale queued item.
@@ -49,18 +26,10 @@ class AlertSystem:
         self._voice_thread.start()
 
         print("[Voice] Text-to-speech engine ready — speaks object names aloud.")
-        print("[Beep]  Sound alert system ready (using system MessageBeep).")
 
         # Send a startup ping so you know ntfy is connected
         if config.NTFY_TOPIC:
             threading.Thread(target=self._send_startup_ping, daemon=True).start()
-
-    def _play_beep(self, class_name):
-        """Instant, non-blocking standard Windows beep."""
-        try:
-            winsound.MessageBeep(-1)
-        except Exception as e:
-            print(f"[Beep] Error: {e}")
 
     # ── Voice worker ─────────────────────────────────────────────────────────
     def _voice_worker(self):
@@ -117,26 +86,23 @@ class AlertSystem:
         """
         Called on EVERY detection frame.
         Speaks the object name with a SHORT per-class cooldown (0.5 s).
-        Beep is disabled — voice only.
         """
         now = time.time()
         if now - self._last_sound_time.get(class_name, 0) < self._sound_cooldown:
             return  # too soon for this class — skip
         self._last_sound_time[class_name] = now
-
-        # Speak the object name (beep removed)
         self._speak(class_name)
 
     def trigger_alert(self, class_name, confidence=None):
         """
-        Called for heavy alerts: CSV logging, snapshots, ntfy notification.
-        Uses the longer COOLDOWN_TIME from config (default 2 s).
+        Called for heavy alerts: ntfy push notification.
+        Uses the longer COOLDOWN_TIME from config (default 60 s).
+        CSV logging and snapshots are handled in main.py before this call.
         """
         current_time = time.time()
 
-        if class_name in self.last_alert_time:
-            if current_time - self.last_alert_time[class_name] < config.COOLDOWN_TIME:
-                return  # Still in cooldown
+        if current_time - self.last_alert_time.get(class_name, 0) < config.COOLDOWN_TIME:
+            return  # Still in cooldown
 
         self.last_alert_time[class_name] = current_time
 
@@ -206,7 +172,7 @@ class AlertSystem:
     def _send_mobile_notification(self, class_name, confidence=None):
         """Sends a push notification to ntfy with retry on failure."""
         import datetime
-        conf_str = f" — {int(confidence * 100)}% confident" if confidence else ""
+        conf_str  = f" — {int(confidence * 100)}% confident" if confidence else ""
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         conf_pct  = int(confidence * 100) if confidence else 0
 
@@ -216,7 +182,6 @@ class AlertSystem:
             return
 
         url      = f"https://ntfy.envs.net/{config.NTFY_TOPIC}"
-        # Put emoji in the body (UTF-8 safe) NOT in headers (latin-1 only — causes crash)
         message  = f"[ALERT] {class_name.capitalize()} detected at {timestamp}{conf_str}."
         tag      = self._TAG_MAP.get(class_name, 'eyes')
         priority = "urgent" if class_name in self._URGENT_CLASSES else "high"
@@ -247,4 +212,3 @@ class AlertSystem:
                 print(f"[ntfy] Attempt {attempt} error: {e}")
 
         print(f"[ntfy] ✗ All attempts failed for: {class_name}")
-

@@ -1,4 +1,5 @@
 # config/config.py
+import os
 
 # YOLO Configuration
 # yolov8n = nano (Super fast, but low accuracy/guesses wrong)
@@ -7,10 +8,19 @@
 MODEL_NAME = 'yolov8s-world.pt'
 
 # Read custom classes from models/classes.txt
-import os
-classes_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'classes.txt')
-with open(classes_file, 'r') as f:
-    CUSTOM_CLASSES = [line.strip() for line in f if line.strip()]
+# Wrapped in try/except so a missing file gives a clear, actionable error.
+_classes_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'classes.txt')
+try:
+    with open(_classes_file, 'r') as _f:
+        CUSTOM_CLASSES = [line.strip() for line in _f if line.strip()]
+    if not CUSTOM_CLASSES:
+        raise ValueError("classes.txt is empty — please add at least one class name.")
+    print(f"[Config] Loaded {len(CUSTOM_CLASSES)} custom classes from classes.txt")
+except FileNotFoundError:
+    raise FileNotFoundError(
+        f"\n[Config] ERROR: 'models/classes.txt' not found at:\n  {_classes_file}\n"
+        f"Create this file and add one object class per line (e.g. 'person', 'car')."
+    )
 
 IMAGE_SIZE = 960                # Higher resolution for better small object accuracy (default was 640)
 CONFIDENCE_THRESHOLD = 0.40     # Lowered to 40% to detect small objects that have lower confidence
@@ -22,8 +32,10 @@ ALERT_CLASSES = []         # [] = alert on ALL objects
 COOLDOWN_TIME = 60         # 60s between ntfy notifications per class (saves daily quota)
 
 # Notification Settings
-# Add your ntfy topic here to enable mobile notifications (e.g., 'my_security_alerts_123')
-NTFY_TOPIC = 'rajiv-notification'
+# Set NTFY_TOPIC in your environment (recommended) or change the fallback string below.
+# To set env var (Windows): setx NTFY_TOPIC "your-topic-name"
+# To set env var (Linux/Mac): export NTFY_TOPIC="your-topic-name"
+NTFY_TOPIC = os.environ.get('NTFY_TOPIC', 'rajiv-notification')
 
 # Logging and Snapshot Settings
 SAVE_SNAPSHOTS = True
@@ -32,10 +44,16 @@ LOG_CSV = True
 CSV_LOG_FILE = 'static/output/detection_log.csv'
 SHOW_STATS = True  # Show FPS and object count on screen
 
-# ── Google Drive Cloud Backup ────────────────────────────────────────────────
-# Set GOOGLE_DRIVE_UPLOAD = True to auto-upload every alert snapshot to Drive.
-# CREDENTIALS_FILE: path to your downloaded credentials.json from Google Cloud.
-# GOOGLE_DRIVE_FOLDER: name of the folder that will be created in your Drive.
-GOOGLE_DRIVE_UPLOAD   = False          # Change to True after setting up credentials
-CREDENTIALS_FILE      = 'credentials.json'
-GOOGLE_DRIVE_FOLDER   = 'Security_Snapshots'
+# ── Recording Settings ───────────────────────────────────────────────────────
+# RECORD_CLIPS      : Save a short video clip whenever an alert triggers.
+# CONTINUOUS_RECORD : Record the entire session to one long video file.
+# RECORDING_DIR     : Parent folder — clips/ and sessions/ sub-folders created automatically.
+# CLIP_DURATION_SEC : How many seconds to record AFTER the detection event.
+# PRE_BUFFER_SEC    : Seconds of footage BEFORE the trigger included in the clip.
+# CLIP_COOLDOWN_SEC : Minimum gap (seconds) between clips for the same class.
+RECORD_CLIPS      = True
+CONTINUOUS_RECORD = False                    # Set True to record full session
+RECORDING_DIR     = 'static/output/recordings'
+CLIP_DURATION_SEC = 15       # seconds of video after detection
+PRE_BUFFER_SEC    = 3        # seconds of pre-detection buffer included
+CLIP_COOLDOWN_SEC = 30       # min gap between clips for the same object class
