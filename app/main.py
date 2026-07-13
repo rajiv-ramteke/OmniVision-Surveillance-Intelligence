@@ -11,6 +11,7 @@ from app.camera import CameraStream
 from app.detection import ObjectDetector
 from app.alerts import AlertSystem
 from app.utils import draw_bounding_box, draw_stats, save_snapshot, log_detection_csv
+from app import cloud_storage
 
 
 def main():
@@ -22,8 +23,11 @@ def main():
         print(e)
         return
 
-    detector    = ObjectDetector()
+    detector     = ObjectDetector()
     alert_system = AlertSystem()
+
+    # Start Google Drive background uploader (only if enabled in config)
+    cloud_storage.start()
 
     print("System started successfully. Press 'q' to quit.")
 
@@ -82,7 +86,9 @@ def main():
                         if config.LOG_CSV:
                             log_detection_csv(config.CSV_LOG_FILE, class_name, confidence)
                         if config.SAVE_SNAPSHOTS:
-                            save_snapshot(frame, config.SNAPSHOT_DIR, class_name)
+                            snapshot_path = save_snapshot(frame, config.SNAPSHOT_DIR, class_name)
+                            # Queue for Google Drive upload (non-blocking)
+                            cloud_storage.upload_snapshot(snapshot_path)
                         alert_system.trigger_alert(class_name, confidence)
 
             # ── Draw live stats overlay ───────────────────────────────────────

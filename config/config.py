@@ -31,3 +31,11 @@ SNAPSHOT_DIR = 'static/output/snapshots'
 LOG_CSV = True
 CSV_LOG_FILE = 'static/output/detection_log.csv'
 SHOW_STATS = True  # Show FPS and object count on screen
+
+# ── Google Drive Cloud Backup ────────────────────────────────────────────────
+# Set GOOGLE_DRIVE_UPLOAD = True to auto-upload every alert snapshot to Drive.
+# CREDENTIALS_FILE: path to your downloaded credentials.json from Google Cloud.
+# GOOGLE_DRIVE_FOLDER: name of the folder that will be created in your Drive.
+GOOGLE_DRIVE_UPLOAD   = False          # Change to True after setting up credentials
+CREDENTIALS_FILE      = 'credentials.json'
+GOOGLE_DRIVE_FOLDER   = 'Security_Snapshots'

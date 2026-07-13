@@ -13,6 +13,8 @@ static/output/
 
 # Environment variables
 .env
+credentials.json
+token.json
 
 # OS specific
 .DS_Store
