@@ -4,7 +4,7 @@
 **Affiliation:** Suryodaya College Of Enginering and Technology Nagpur  
 **Date:** July 2026  
 
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)](https://github.com/rajiv-ramteke/OmniVision-AI-Real-Time-Object-Tracking-Analytics-Platform)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)](https://github.com/rajiv-ramteke/OmniVision-Intelligence-System)
 [![HuggingFace](https://img.shields.io/badge/🤗%20HuggingFace-Live%20Demo-yellow)](https://huggingface.co/spaces/rajiv-ramteke/Real-Time-Object-Detection)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)](https://python.org)
 [![YOLOv8](https://img.shields.io/badge/YOLOv8-World-green)](https://github.com/ultralytics/ultralytics)
