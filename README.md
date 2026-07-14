@@ -120,9 +120,10 @@ Simply open the HuggingFace Spaces link on any device (PC, Tablet, Mobile) with 
 For advanced open-vocabulary detection, run the local Python application.
 
 * **Step 1: Clone the Repository**
+  Open your terminal or command prompt and run:
   ```bash
-  git clone https://github.com/your-username/real-time-object-detection.git
-  cd real-time-object-detection
+  git clone https://github.com/rajiv-ramteke/OmniVision-Surveillance-Intelligence.git
+  cd OmniVision-Surveillance-Intelligence
   ```
 * **Step 2: Install Dependencies**
   Ensure Python 3.8+ is installed, then run:
@@ -131,11 +132,14 @@ For advanced open-vocabulary detection, run the local Python application.
   ```
 * **Step 3: Configure Classes (Optional)**
   Open `models/classes.txt` and add/remove the object names you want the model to detect.
-* **Step 4: Run the Application**
+* **Step 4: Run the Application (Terminal Command)**
+  To start the real-time AI surveillance system, run this exact command in your terminal:
   ```bash
   python app/main.py
   ```
-  *Press `q` to exit the camera window.*
+  *(Tip: You can also just double-click the `run.bat` file on Windows!)*
+  
+  *Press `q` on your keyboard to exit the camera window.*
 
 ## Technical Stack
 **Frontend / Web Application:**
