@@ -52,11 +52,22 @@
       box-shadow: 0 4px 15px rgba(217, 70, 239, 0.4), inset 0 0 10px rgba(255,255,255,0.2);
       font-size: 1.3rem; color: white;
     }
+    .brand-container {
+      display: flex; flex-direction: column; justify-content: center;
+    }
     .brand-text {
-      font-size: 1.6rem; font-weight: 800; letter-spacing: 1px;
+      font-size: 1.4rem; font-weight: 800; letter-spacing: 1px;
       background: linear-gradient(to right, #ffffff, #c4b5fd);
       -webkit-background-clip: text; color: transparent;
       filter: drop-shadow(0 0 8px rgba(196, 181, 253, 0.4));
+      line-height: 1.1;
+    }
+    .brand-tagline {
+      font-size: 0.7rem; color: var(--accent-s);
+      letter-spacing: 1.5px; text-transform: uppercase;
+      font-weight: 600; margin-top: 2px;
+      font-family: 'Outfit', sans-serif;
+      text-shadow: 0 0 10px rgba(217, 70, 239, 0.5);
     }
 
     .nav-badge {
@@ -306,7 +317,10 @@
 <header class="navbar">
   <div class="brand">
     <div class="brand-icon">👁️</div>
-    <div class="brand-text">OmniVision AI</div>
+    <div class="brand-container">
+      <div class="brand-text">OmniVision-Surveillance-Intelligence</div>
+      <div class="brand-tagline">Observe. Understand. Alert.</div>
+    </div>
   </div>
   <div class="nav-badge">
     <div class="live-dot"></div>
