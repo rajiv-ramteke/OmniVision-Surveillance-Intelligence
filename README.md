@@ -1,4 +1,4 @@
-# OmniVision AI — Intelligent Real-Time Object Detection & Analytics Platform
+# OmniVision AI: Advanced Surveillance Intelligence, Analytics, and Alerting Platform
 
 **Author(s):** Rajiv Ramteke  
 **Affiliation:** Suryodaya College Of Enginering and Technology Nagpur  
