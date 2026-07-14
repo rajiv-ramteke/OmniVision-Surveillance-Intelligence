@@ -1,4 +1,4 @@
-# OmniVision AI: Real-Time Object Tracking & Analytics
+# OmniVision AI — Intelligent Real-Time Object Detection & Analytics Platform
 
 **Author(s):** Rajiv Ramteke  
 **Affiliation:** Suryodaya College Of Enginering and Technology Nagpur  
