@@ -13,7 +13,7 @@ import sys
 import os
 
 # Config
-SPACE_NAME  = "OmniVision-Intelligence-System"
+SPACE_NAME  = "OmniVision-Surveillance-Intelligence"
 SPACE_DIR   = os.path.join(os.path.dirname(__file__), "hf_spaces")
 
 # Only upload these files for a static space (skip app.py, requirements.txt, Dockerfile)
