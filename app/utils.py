@@ -115,3 +115,28 @@ def log_detection_csv(csv_file, class_name, confidence):
             writer.writerow(['Timestamp', 'Class', 'Confidence'])  # Header
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         writer.writerow([timestamp, class_name, f"{confidence:.2f}"])
+
+
+def enhance_night_vision(frame):
+    """
+    Enhances low-light video using Contrast Limited Adaptive Histogram Equalization (CLAHE).
+    Converts frame to LAB color space, equalizes the Lightness (L) channel, and converts back.
+    This brightens the image without washing out colors or overexposing bright spots.
+    """
+    # Convert to LAB color space
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    
+    # Split the channels
+    l, a, b = cv2.split(lab)
+    
+    # Apply CLAHE to L-channel
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    
+    # Merge the CLAHE enhanced L-channel with the original A and B channels
+    limg = cv2.merge((cl, a, b))
+    
+    # Convert back to BGR color space
+    enhanced_frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+    
+    return enhanced_frame

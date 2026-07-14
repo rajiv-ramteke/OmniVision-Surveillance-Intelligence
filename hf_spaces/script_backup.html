@@ -1,0 +1,505 @@
+<!-- ONNX Runtime Web -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+
+<script>
+'use strict';
+
+// ── COCO class names ───────────────────────────────────────────────────────
+const COCO_CLASSES = [
+  'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
+  'traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat',
+  'dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack',
+  'umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball',
+  'kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket',
+  'bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple',
+  'sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair',
+  'couch','potted plant','bed','dining table','toilet','tv','laptop','mouse',
+  'remote','keyboard','cell phone','microwave','oven','toaster','sink',
+  'refrigerator','book','clock','vase','scissors','teddy bear','hair drier','toothbrush'
+];
+
+// Deterministic per-class colours
+function classColor(idx) {
+  const hue = (idx * 47 + 30) % 360;
+  return `hsl(${hue},75%,60%)`;
+}
+
+// ── Globals ────────────────────────────────────────────────────────────────
+let session = null;
+let running = false;
+let animId  = null;
+const INPUT_SIZE = 640;
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const statusDot  = document.getElementById('status-dot');
+const statusMsg  = document.getElementById('status-msg');
+const fpsDisplay = document.getElementById('fps-display');
+const loadOverlay = document.getElementById('loading-overlay');
+const loadMsg    = document.getElementById('load-msg');
+const loadSub    = document.getElementById('load-sub');
+const loadBar    = document.getElementById('load-bar');
+
+const video    = document.getElementById('webcam-video');
+const canvas   = document.getElementById('overlay-canvas');
+const ctx      = canvas.getContext('2d');
+
+const confSlider = document.getElementById('conf-slider');
+const iouSlider  = document.getElementById('iou-slider');
+const confVal    = document.getElementById('conf-val');
+const iouVal     = document.getElementById('iou-val');
+
+const btnStart = document.getElementById('btn-start');
+const btnStop  = document.getElementById('btn-stop');
+const btnRecord = document.getElementById('btn-record');
+
+// Image tab
+const fileInput      = document.getElementById('file-input');
+const uploadBox      = document.getElementById('upload-box');
+const uploadPreview  = document.getElementById('upload-preview');
+const resultCanvas   = document.getElementById('result-canvas');
+const resultPH       = document.getElementById('result-placeholder');
+const btnDetectImg   = document.getElementById('btn-detect-img');
+const btnClearImg    = document.getElementById('btn-clear-img');
+const detResults     = document.getElementById('det-results');
+
+// ── Sliders ────────────────────────────────────────────────────────────────
+confSlider.addEventListener('input', () => confVal.textContent = confSlider.value + '%');
+iouSlider.addEventListener('input',  () => iouVal.textContent  = iouSlider.value + '%');
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Load model ─────────────────────────────────────────────────────────────
+async function loadModel() {
+  setStatus('loading', 'Downloading YOLOv8s model…');
+  loadBar.style.width = '10%';
+
+  // Use WASM backend (works everywhere, no GPU needed)
+  ort.env.wasm.numThreads = navigator.hardwareConcurrency || 2;
+
+  const MODEL_URL = 'yolov8s.onnx';
+  // Fallback CDN if above doesn't exist yet (hosted on jsDelivr mirror)
+  const FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/ultralytics/assets@main/yolov8s.onnx';
+
+  let modelUrl = MODEL_URL;
+
+  try {
+    loadBar.style.width = '40%';
+    loadMsg.textContent = 'Loading ONNX model…';
+
+    // Try to fetch — if it fails use fallback
+    let arrayBuffer;
+    try {
+      const resp = await fetch(modelUrl);
+      if (!resp.ok) throw new Error('primary failed');
+      arrayBuffer = await resp.arrayBuffer();
+    } catch {
+      loadSub.textContent = 'Using backup CDN…';
+      modelUrl = FALLBACK_URL;
+      const resp = await fetch(modelUrl);
+      arrayBuffer = await resp.arrayBuffer();
+    }
+
+    loadBar.style.width = '75%';
+    loadMsg.textContent = 'Initialising ONNX Runtime…';
+
+    session = await ort.InferenceSession.create(arrayBuffer, {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
+
+    loadBar.style.width = '100%';
+    loadMsg.textContent = 'Ready!';
+    await new Promise(r => setTimeout(r, 400));
+    loadOverlay.classList.add('hidden');
+    setStatus('ready', 'Model ready — click Start Camera or upload an image');
+  } catch(e) {
+    console.error(e);
+    setStatus('error', 'Failed to load model: ' + e.message);
+    loadMsg.textContent = '❌ Failed to load model';
+    loadSub.textContent = e.message;
+  }
+}
+
+function setStatus(type, msg) {
+  statusDot.className = '';
+  statusDot.classList.add(type);   // ready | error | running | (yellow = default)
+  statusMsg.textContent = msg;
+}
+
+// ── Webcam ─────────────────────────────────────────────────────────────────
+btnStart.addEventListener('click', startCamera);
+btnStop.addEventListener('click',  stopCamera);
+
+async function startCamera() {
+  if (!session) { setStatus('error', 'Model not loaded yet'); return; }
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    running = true;
+    btnStart.disabled = true;
+    btnStop.disabled  = false;
+    btnRecord.disabled = false;
+    setStatus('running', 'Live detection running…');
+    detectLoop();
+  } catch(e) {
+    setStatus('error', 'Camera error: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if (isRecording) toggleRecording(); // stop recording if active
+  if (animId) cancelAnimationFrame(animId);
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  btnStart.disabled = false;
+  btnStop.disabled  = true;
+  btnRecord.disabled = true;
+  fpsDisplay.textContent = '';
+  setStatus('ready', 'Camera stopped');
+}
+
+// ── Recording ──────────────────────────────────────────────────────────────
+let mediaRecorder;
+let recordedChunks = [];
+let isRecording = false;
+
+btnRecord.addEventListener('click', toggleRecording);
+
+function toggleRecording() {
+  if (!isRecording) {
+    // Start recording
+    const stream = canvas.captureStream(30); // 30 FPS
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    
+    mediaRecorder.ondataavailable = e => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    };
+    
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `detection_recording_${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      recordedChunks = [];
+    };
+    
+    mediaRecorder.start();
+    isRecording = true;
+    btnRecord.textContent = '⏹ Stop Recording';
+    btnRecord.classList.remove('btn-secondary');
+    btnRecord.classList.add('btn-danger');
+    btnRecord.style.animation = 'pulse 1.2s infinite';
+  } else {
+    // Stop recording
+    mediaRecorder.stop();
+    isRecording = false;
+    btnRecord.textContent = '⏺ Start Recording';
+    btnRecord.classList.remove('btn-danger');
+    btnRecord.classList.add('btn-secondary');
+    btnRecord.style.animation = 'none';
+  }
+}
+
+// FPS smoothing
+const frameTimes = [];
+let lastFrameTime = performance.now();
+
+async function detectLoop() {
+  if (!running) return;
+
+  const now = performance.now();
+  frameTimes.push(now - lastFrameTime);
+  if (frameTimes.length > 20) frameTimes.shift();
+  const avgDt = frameTimes.reduce((a,b) => a+b, 0) / frameTimes.length;
+  fpsDisplay.textContent = Math.round(1000 / avgDt) + ' FPS';
+  lastFrameTime = now;
+
+  // Sync canvas to video
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+
+  if (video.readyState >= 2) {
+    const dets = await runInference(video, canvas.width, canvas.height, 0.40);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Draw the actual video to the canvas so the recorder captures it
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    drawBoxes(ctx, dets, canvas.width, canvas.height);
+    triggerAlerts(dets);
+  }
+
+  animId = requestAnimationFrame(detectLoop);
+}
+
+// ── Image upload ───────────────────────────────────────────────────────────
+let uploadedImg = null;
+
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  uploadPreview.src = url;
+  uploadPreview.style.display = 'block';
+  uploadBox.classList.add('has-img');
+  const placeholder = uploadBox.querySelector('.img-placeholder');
+  if (placeholder) placeholder.style.display = 'none';
+
+  uploadedImg = new Image();
+  uploadedImg.src = url;
+  uploadedImg.onload = () => {
+    btnDetectImg.disabled = false;
+    btnClearImg.disabled  = false;
+    resultCanvas.style.display = 'none';
+    resultPH.style.display = 'flex';
+    detResults.innerHTML = '<h3>Detections</h3><span style="color:var(--muted);font-size:.85rem">Click Detect to run detection.</span>';
+  };
+});
+
+btnDetectImg.addEventListener('click', async () => {
+  if (!uploadedImg || !session) return;
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+  btnDetectImg.disabled = true;
+  btnDetectImg.textContent = '⏳ Detecting…';
+
+  const W = uploadedImg.naturalWidth;
+  const H = uploadedImg.naturalHeight;
+
+  // Draw to offscreen canvas for inference
+  const offscreen = new OffscreenCanvas(W, H);
+  const offCtx    = offscreen.getContext('2d');
+  offCtx.drawImage(uploadedImg, 0, 0);
+
+  const dets = await runInference(offscreen, W, H, 0.25);
+
+  // Draw on result canvas
+  resultCanvas.width  = W;
+  resultCanvas.height = H;
+  const rCtx = resultCanvas.getContext('2d');
+  rCtx.drawImage(uploadedImg, 0, 0);
+  drawBoxes(rCtx, dets, W, H);
+  triggerAlerts(dets);
+  resultCanvas.style.display = 'block';
+  resultPH.style.display = 'none';
+
+  // Show tags
+  const tags = dets.map(d =>
+    `<span class="det-tag">${d.label} <span class="conf">${Math.round(d.conf*100)}%</span></span>`
+  ).join('');
+  detResults.innerHTML = `<h3>Detections (${dets.length})</h3>` + (tags || '<span style="color:var(--muted);font-size:.85rem">No objects detected above threshold.</span>');
+
+  btnDetectImg.disabled = false;
+  btnDetectImg.textContent = '🔍 Detect Objects';
+});
+
+btnClearImg.addEventListener('click', () => {
+  uploadedImg = null;
+  uploadPreview.style.display = 'none';
+  uploadPreview.src = '';
+  uploadBox.classList.remove('has-img');
+  const placeholder = uploadBox.querySelector('.img-placeholder');
+  if (placeholder) placeholder.style.display = 'block';
+  resultCanvas.style.display = 'none';
+  resultPH.style.display = 'flex';
+  btnDetectImg.disabled = true;
+  btnClearImg.disabled  = true;
+  detResults.innerHTML  = '<h3>Detections</h3><span style="color:var(--muted);font-size:.85rem">Upload an image and click Detect to see results.</span>';
+  fileInput.value = '';
+});
+
+// ── YOLOv8 inference ───────────────────────────────────────────────────────
+async function runInference(source, srcW, srcH, conf_thresh) {
+  // Preprocess: letterbox to 640×640
+  const scale = Math.min(INPUT_SIZE / srcW, INPUT_SIZE / srcH);
+  const newW  = Math.round(srcW * scale);
+  const newH  = Math.round(srcH * scale);
+  const padX  = (INPUT_SIZE - newW) / 2;
+  const padY  = (INPUT_SIZE - newH) / 2;
+
+  const offscreen = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
+  const octx = offscreen.getContext('2d');
+  octx.fillStyle = '#808080';
+  octx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+  octx.drawImage(source, padX, padY, newW, newH);
+
+  const imgData = octx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
+
+  // HWC uint8 → CHW float32 normalised
+  const float32 = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
+  for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
+    float32[i]                              = imgData[i * 4]     / 255.0; // R
+    float32[INPUT_SIZE * INPUT_SIZE + i]    = imgData[i * 4 + 1] / 255.0; // G
+    float32[2 * INPUT_SIZE * INPUT_SIZE + i]= imgData[i * 4 + 2] / 255.0; // B
+  }
+
+  const tensor = new ort.Tensor('float32', float32, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+  const feeds  = { images: tensor };
+  const results = await session.run(feeds);
+
+  // YOLOv8 output: [1, 84, 8400]  (cx, cy, w, h, class0..79)
+  const output = results[Object.keys(results)[0]].data; // Float32Array
+  const numDet = 8400;
+
+  const boxes = [];
+  for (let i = 0; i < numDet; i++) {
+    // Find best class
+    let maxConf = 0, maxCls = 0;
+    for (let c = 0; c < 80; c++) {
+      const v = output[(4 + c) * numDet + i];
+      if (v > maxConf) { maxConf = v; maxCls = c; }
+    }
+    if (maxConf < conf_thresh) continue;
+
+    // cx, cy, w, h in 640×640 space
+    const cx = output[0 * numDet + i];
+    const cy = output[1 * numDet + i];
+    const bw = output[2 * numDet + i];
+    const bh = output[3 * numDet + i];
+
+    // Convert back to source coords
+    const x1 = ((cx - bw/2) - padX) / scale;
+    const y1 = ((cy - bh/2) - padY) / scale;
+    const x2 = ((cx + bw/2) - padX) / scale;
+    const y2 = ((cy + bh/2) - padY) / scale;
+
+    boxes.push({ x1, y1, x2, y2, conf: maxConf, cls: maxCls, label: COCO_CLASSES[maxCls] });
+  }
+
+  return nms(boxes, iouSlider.value / 100);
+}
+
+// ── NMS ────────────────────────────────────────────────────────────────────
+function nms(boxes, iouThresh) {
+  boxes.sort((a, b) => b.conf - a.conf);
+  const keep = [];
+  const suppressed = new Uint8Array(boxes.length);
+  for (let i = 0; i < boxes.length; i++) {
+    if (suppressed[i]) continue;
+    keep.push(boxes[i]);
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (suppressed[j]) continue;
+      if (iou(boxes[i], boxes[j]) > iouThresh) suppressed[j] = 1;
+    }
+  }
+  return keep;
+}
+
+function iou(a, b) {
+  const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1);
+  const ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
+  const inter = Math.max(0, ix2-ix1) * Math.max(0, iy2-iy1);
+  const ua = (a.x2-a.x1)*(a.y2-a.y1) + (b.x2-b.x1)*(b.y2-b.y1) - inter;
+  return ua ? inter / ua : 0;
+}
+
+// ── Alerts (Speech & Notifications) ────────────────────────────────────────
+const lastAlertTime = new Map();
+const ALERT_COOLDOWN_MS = 3000;
+
+function sendNtfy(message, tag = 'rotating_light') {
+  fetch('https://ntfy.envs.net/my_notify', {
+    method: 'POST',
+    body: message,
+    headers: {
+        'Title': '🎯 YOLO Object Detection',
+        'Tags': tag,
+        'Click': 'https://huggingface.co/spaces/rajiv-ramteke/Real-Time-Object-Detection'
+    }
+  }).catch(err => console.error("ntfy error:", err));
+}
+
+function triggerAlerts(dets) {
+  const now = Date.now();
+  const uniqueLabels = [...new Set(dets.map(d => d.label))];
+  
+  for (const label of uniqueLabels) {
+    const lastTime = lastAlertTime.get(label) || 0;
+    if (now - lastTime > ALERT_COOLDOWN_MS) {
+      // 1. Speech
+      if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(label);
+        utterance.rate = 1.1; // Slightly faster speech
+        window.speechSynthesis.speak(utterance);
+      }
+      
+      // 2. Notification (Local Browser)
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Object Detected", {
+          body: `Detected a ${label}`,
+          icon: 'https://huggingface.co/front/assets/huggingface_logo-noborder.svg'
+        });
+      }
+
+      // 3. ntfy.sh Push Notification to phone/desktop
+      sendNtfy(`Detected a ${label} on your camera feed.`, 'camera,rotating_light');
+
+      lastAlertTime.set(label, now);
+    }
+  }
+}
+
+// ── Draw boxes ─────────────────────────────────────────────────────────────
+function drawBoxes(ctx, dets, W, H) {
+  dets.forEach(d => {
+    const color = classColor(d.cls);
+    const x1 = Math.max(0, d.x1), y1 = Math.max(0, d.y1);
+    const x2 = Math.min(W, d.x2), y2 = Math.min(H, d.y2);
+    const bw = x2 - x1, bh = y2 - y1;
+    if (bw <= 0 || bh <= 0) return;
+
+    // Main rect
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 2;
+    ctx.strokeRect(x1, y1, bw, bh);
+
+    // Corner accents
+    const cl = Math.max(8, Math.min(bw, bh) / 6);
+    ctx.lineWidth = 3;
+    [[x1,y1,1,1],[x2,y1,-1,1],[x1,y2,1,-1],[x2,y2,-1,-1]].forEach(([cx,cy,dx,dy]) => {
+      ctx.beginPath(); ctx.moveTo(cx+dx*cl,cy); ctx.lineTo(cx,cy); ctx.lineTo(cx,cy+dy*cl);
+      ctx.stroke();
+    });
+
+    // Label
+    const label = `${d.label} ${Math.round(d.conf*100)}%`;
+    const fontSize = Math.max(11, Math.min(14, bw/8));
+    ctx.font = `600 ${fontSize}px Inter,sans-serif`;
+    const tw = ctx.measureText(label).width;
+    const lh = fontSize + 8;
+    const lx = x1, ly = Math.max(0, y1 - lh);
+
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(lx, ly, tw + 10, lh);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000';
+    ctx.fillText(label, lx + 5, ly + lh - 4);
+  });
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+loadModel();
+</script>
+</body>
+</html>

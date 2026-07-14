@@ -10,7 +10,7 @@ from config import config
 from app.camera import CameraStream
 from app.detection import ObjectDetector
 from app.alerts import AlertSystem
-from app.utils import draw_bounding_box, draw_stats, save_snapshot, log_detection_csv
+from app.utils import draw_bounding_box, draw_stats, save_snapshot, log_detection_csv, enhance_night_vision
 from app.recorder import ClipRecorder, ContinuousRecorder
 
 
@@ -55,6 +55,10 @@ def main():
                 continue
 
             last_frame_time = time.time()
+
+            # ── Image Enhancement (Night Vision) ──────────────────────────────
+            if getattr(config, 'NIGHT_VISION_ENHANCEMENT', False):
+                frame = enhance_night_vision(frame)
 
             # ── Feed raw frame to recorders (before annotation) ───────────────
             if clip_recorder:

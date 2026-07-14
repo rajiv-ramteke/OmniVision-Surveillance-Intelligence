@@ -11,6 +11,7 @@ from ultralytics import YOLO
 from PIL import Image
 import time
 import os
+from pathlib import Path
 
 # ── Constants ────────────────────────────────────────────────────────────────
 CUSTOM_CLASSES = [
@@ -33,8 +34,18 @@ seen = set()
 CUSTOM_CLASSES = [x for x in CUSTOM_CLASSES if not (x in seen or seen.add(x))]
 
 # ── Model loading ─────────────────────────────────────────────────────────────
+_MODEL_PATH = Path("yolov8s-world.pt")
+if not _MODEL_PATH.exists():
+    print("Downloading yolov8s-world.pt from Ultralytics...")
+    import urllib.request
+    urllib.request.urlretrieve(
+        "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s-world.pt",
+        str(_MODEL_PATH),
+    )
+    print("✓ Model downloaded")
+
 print("Loading YOLOv8-World model...")
-model = YOLO("yolov8s-world.pt")
+model = YOLO(str(_MODEL_PATH))
 model.set_classes(CUSTOM_CLASSES)
 print(f"✓ Model loaded with {len(CUSTOM_CLASSES)} classes")
 
@@ -77,8 +88,22 @@ def _draw_box(frame, box, class_name, confidence):
     return frame
 
 
+# ── Night Vision Enhancement (CLAHE) ────────────────────────────────────────
+def enhance_night_vision(frame_bgr):
+    """
+    Enhances low-light frames using CLAHE on the L channel of LAB color space.
+    Brightens dark images without overexposing bright areas.
+    """
+    lab = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    limg = cv2.merge((cl, a, b))
+    return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
+
 # ── Core detection function ───────────────────────────────────────────────────
-def detect_objects(image, confidence_threshold: float, iou_threshold: float):
+def detect_objects(image, confidence_threshold: float, iou_threshold: float, night_vision: bool = False):
     """Run YOLOv8 detection on a PIL image and return annotated image + results."""
     if image is None:
         return None, "⚠️ No image provided."
@@ -87,6 +112,10 @@ def detect_objects(image, confidence_threshold: float, iou_threshold: float):
 
     # PIL → BGR numpy
     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    # Apply Night Vision enhancement if enabled
+    if night_vision:
+        frame = enhance_night_vision(frame)
 
     results = model.predict(
         frame,
@@ -116,22 +145,25 @@ def detect_objects(image, confidence_threshold: float, iou_threshold: float):
     # Build summary text
     if detections:
         summary_lines = [f"⚡ Inference: `{elapsed*1000:.0f} ms`", ""]
+        if night_vision:
+            summary_lines.insert(0, "🌙 Night Vision: **ON**")
         summary_lines += [f"✅ {d}" for d in detections]
         summary = "\n".join(summary_lines)
     else:
-        summary = f"⚡ Inference: `{elapsed*1000:.0f} ms`\n\n🔍 No objects detected above {confidence_threshold:.0%} confidence."
+        nv_tag = "🌙 Night Vision: **ON**\n\n" if night_vision else ""
+        summary = f"{nv_tag}⚡ Inference: `{elapsed*1000:.0f} ms`\n\n🔍 No objects detected above {confidence_threshold:.0%} confidence."
 
     # BGR → RGB for Gradio
     annotated = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     return Image.fromarray(annotated), summary
 
 
-def detect_video_frame(frame, confidence_threshold: float, iou_threshold: float):
+def detect_video_frame(frame, confidence_threshold: float, iou_threshold: float, night_vision: bool = False):
     """Process a single webcam frame (numpy array from Gradio)."""
     if frame is None:
         return None
     pil_img = Image.fromarray(frame)
-    result_img, _ = detect_objects(pil_img, confidence_threshold, iou_threshold)
+    result_img, _ = detect_objects(pil_img, confidence_threshold, iou_threshold, night_vision)
     return np.array(result_img) if result_img else frame
 
 
@@ -153,8 +185,10 @@ with gr.Blocks(css=css, theme=gr.themes.Soft(), title="Object Detection System")
     """)
 
     with gr.Row():
-        conf_slider = gr.Slider(0.1, 0.95, value=0.40, step=0.05, label="🎚️ Confidence Threshold")
+        conf_slider = gr.Slider(0.1, 0.95, value=0.65, step=0.05, label="🎚️ Confidence Threshold")
         iou_slider  = gr.Slider(0.1, 0.95, value=0.45, step=0.05, label="🎚️ IoU Threshold")
+    with gr.Row():
+        night_vision_toggle = gr.Checkbox(label="🌙 Night Vision Enhancement (Auto-Brighten Low Light)", value=False)
 
     with gr.Tabs():
 
@@ -169,7 +203,7 @@ with gr.Blocks(css=css, theme=gr.themes.Soft(), title="Object Detection System")
 
             detect_btn.click(
                 fn=detect_objects,
-                inputs=[img_input, conf_slider, iou_slider],
+                inputs=[img_input, conf_slider, iou_slider, night_vision_toggle],
                 outputs=[img_output, result_text],
             )
 
@@ -181,7 +215,7 @@ with gr.Blocks(css=css, theme=gr.themes.Soft(), title="Object Detection System")
 
             webcam_in.stream(
                 fn=detect_video_frame,
-                inputs=[webcam_in, conf_slider, iou_slider],
+                inputs=[webcam_in, conf_slider, iou_slider, night_vision_toggle],
                 outputs=webcam_out,
             )
 
@@ -240,4 +274,8 @@ with gr.Blocks(css=css, theme=gr.themes.Soft(), title="Object Detection System")
     gr.Markdown(f"_{classes_text}_")
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=int(os.environ.get("PORT", 7860)),
+        show_error=True,
+    )

@@ -155,14 +155,18 @@ class AlertSystem:
             url = f"https://ntfy.envs.net/{config.NTFY_TOPIC}"
             import datetime
             ts = datetime.datetime.now().strftime("%H:%M:%S")
+            headers = {
+                "Title":    "Object Detection System Online",
+                "Tags":     "white_check_mark,camera",
+                "Priority": "default",
+            }
+            if hasattr(config, 'NTFY_TOKEN') and config.NTFY_TOKEN:
+                headers["Authorization"] = f"Bearer {config.NTFY_TOKEN}"
+                
             requests.post(
                 url,
                 data=f"System ONLINE at {ts} - Watching for objects...".encode('utf-8'),
-                headers={
-                    "Title":    "Object Detection System Online",
-                    "Tags":     "white_check_mark,camera",
-                    "Priority": "default",
-                },
+                headers=headers,
                 timeout=8
             )
             print(f"[ntfy] Startup ping sent to ntfy.envs.net/{config.NTFY_TOPIC}")
@@ -191,6 +195,9 @@ class AlertSystem:
             "Tags":     f"warning,{tag}",
             "Priority": priority,
         }
+        
+        if hasattr(config, 'NTFY_TOKEN') and config.NTFY_TOKEN:
+            headers["Authorization"] = f"Bearer {config.NTFY_TOKEN}"
 
         # Try up to 2 times in case of transient network error
         for attempt in range(1, 3):

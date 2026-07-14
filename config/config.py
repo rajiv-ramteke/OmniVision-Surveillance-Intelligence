@@ -12,7 +12,11 @@ MODEL_NAME = 'yolov8s-world.pt'
 _classes_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'classes.txt')
 try:
     with open(_classes_file, 'r') as _f:
-        CUSTOM_CLASSES = [line.strip() for line in _f if line.strip()]
+        # Strip comments (lines starting with #) and blank lines
+        CUSTOM_CLASSES = [
+            line.strip() for line in _f
+            if line.strip() and not line.strip().startswith('#')
+        ]
     if not CUSTOM_CLASSES:
         raise ValueError("classes.txt is empty — please add at least one class name.")
     print(f"[Config] Loaded {len(CUSTOM_CLASSES)} custom classes from classes.txt")
@@ -22,9 +26,17 @@ except FileNotFoundError:
         f"Create this file and add one object class per line (e.g. 'person', 'car')."
     )
 
-IMAGE_SIZE = 960                # Higher resolution for better small object accuracy (default was 640)
-CONFIDENCE_THRESHOLD = 0.40     # Lowered to 40% to detect small objects that have lower confidence
-IOU_THRESHOLD = 0.45            # Non-Maximum Suppression threshold (tighter box overlap)
+# ── Detection Accuracy Tuning ────────────────────────────────────────────────
+# IMAGE_SIZE        : Higher = better accuracy for small objects (slower on CPU)
+# CONFIDENCE_THRESHOLD: 0.70 = only very confident detections shown (no false positives)
+# IOU_THRESHOLD     : 0.50 = tighter NMS, removes overlapping duplicate boxes
+IMAGE_SIZE = 960
+CONFIDENCE_THRESHOLD = 0.55
+IOU_THRESHOLD = 0.50           # Tightened: removes duplicate/overlapping boxes better
+
+# FRAME_SKIP: Run inference every N frames (1 = every frame, 2 = every other frame)
+# Higher value = faster display FPS but slightly delayed detection update
+FRAME_SKIP = 1                 # 1 = max accuracy, 2 = max speed
 
 # Alert Configuration
 # Leaving ALERT_CLASSES empty [] means you get voice & mobile alerts for ALL detected objects
@@ -35,7 +47,7 @@ COOLDOWN_TIME = 60         # 60s between ntfy notifications per class (saves dai
 # Set NTFY_TOPIC in your environment (recommended) or change the fallback string below.
 # To set env var (Windows): setx NTFY_TOPIC "your-topic-name"
 # To set env var (Linux/Mac): export NTFY_TOPIC="your-topic-name"
-NTFY_TOPIC = os.environ.get('NTFY_TOPIC', 'rajiv-notification')
+NTFY_TOPIC = os.environ.get('NTFY_TOPIC', 'my_notify')
 
 # Logging and Snapshot Settings
 SAVE_SNAPSHOTS = True
@@ -43,6 +55,9 @@ SNAPSHOT_DIR = 'static/output/snapshots'
 LOG_CSV = True
 CSV_LOG_FILE = 'static/output/detection_log.csv'
 SHOW_STATS = True  # Show FPS and object count on screen
+
+# ── Image Processing Settings ────────────────────────────────────────────────
+NIGHT_VISION_ENHANCEMENT = True  # Auto-brightens image in low light using CLAHE
 
 # ── Recording Settings ───────────────────────────────────────────────────────
 # RECORD_CLIPS      : Save a short video clip whenever an alert triggers.

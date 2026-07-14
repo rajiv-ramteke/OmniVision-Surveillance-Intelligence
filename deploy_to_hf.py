@@ -1,8 +1,8 @@
 """
 deploy_to_hf.py
 ---------------
-Run this script to deploy the project to HuggingFace Spaces.
-Your token is entered securely in the terminal -- never stored in code.
+Deploys the project to HuggingFace Spaces as a FREE Static Space.
+Static Spaces host pure HTML/CSS/JS — no Python server, no PRO subscription needed.
 
 Usage:
     python deploy_to_hf.py
@@ -16,10 +16,13 @@ import os
 SPACE_NAME  = "Real-Time-Object-Detection"
 SPACE_DIR   = os.path.join(os.path.dirname(__file__), "hf_spaces")
 
+# Only upload these files for a static space (skip app.py, requirements.txt, Dockerfile)
+STATIC_FILES = ["index.html", "README.md", "yolov8s.onnx"]
+
 
 def main():
     print("=" * 60)
-    print("  HuggingFace Spaces -- Deployment Script")
+    print("  HuggingFace Spaces -- Static Space Deployment")
     print("=" * 60)
 
     # 1. Make sure huggingface_hub is installed
@@ -44,17 +47,17 @@ def main():
         user_info = api.whoami()
         hf_username = user_info["name"]
     except Exception:
-        # Fallback if login fails or token is read-only
+        # Fallback if token is read-only
         hf_username = input("Enter your HuggingFace username: ").strip()
 
-    # 3. Create Space
+    # 3. Create Static Space (free for everyone)
     repo_id = hf_username + "/" + SPACE_NAME
-    print("\n[SPACE] Creating Space: " + repo_id)
+    print("\n[SPACE] Creating Static Space: " + repo_id)
     try:
         api.create_repo(
             repo_id=repo_id,
             repo_type="space",
-            space_sdk="gradio",
+            space_sdk="static",
             private=False,
             exist_ok=True,
         )
@@ -63,24 +66,26 @@ def main():
         print("[FAIL] Could not create Space: " + str(e))
         sys.exit(1)
 
-    # 4. Upload files
-    print("\n[UPLOAD] Uploading files from: " + SPACE_DIR)
+    # 4. Upload static files only
+    print("\n[UPLOAD] Uploading static files...")
     count = 0
-    for filename in os.listdir(SPACE_DIR):
+    for filename in STATIC_FILES:
         filepath = os.path.join(SPACE_DIR, filename)
-        if os.path.isfile(filepath):
-            print("   -> " + filename)
-            api.upload_file(
-                path_or_fileobj=filepath,
-                path_in_repo=filename,
-                repo_id=repo_id,
-                repo_type="space",
-            )
-            count += 1
+        if not os.path.isfile(filepath):
+            print("   [SKIP] " + filename + " not found")
+            continue
+        print("   -> " + filename)
+        api.upload_file(
+            path_or_fileobj=filepath,
+            path_in_repo=filename,
+            repo_id=repo_id,
+            repo_type="space",
+        )
+        count += 1
 
     print("\n[DONE] " + str(count) + " files uploaded.")
     print("[LIVE] https://huggingface.co/spaces/" + repo_id)
-    print("       (First build takes 2-3 minutes)")
+    print("       Static Spaces load instantly — no build step needed!")
 
 
 if __name__ == "__main__":

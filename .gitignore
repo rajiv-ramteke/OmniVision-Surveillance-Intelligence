@@ -2,9 +2,12 @@
 __pycache__/
 *.pyc
 
-# Model files
+# Model weight files (too large for GitHub — use Git LFS or link separately)
 *.pt
+
+# ONNX files (except the one needed for HuggingFace deployment)
 *.onnx
+!hf_spaces/yolov8s.onnx
 
 # Output data
 static/output/
@@ -23,4 +26,3 @@ Thumbs.db
 # Environments
 .venv/
 env/
-

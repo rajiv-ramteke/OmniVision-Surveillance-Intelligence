@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OmniVision AI Dashboard</title>
+  <meta name="description" content="Real-time AI Object Detection running entirely in your browser using TensorFlow.js COCO-SSD. No server. No install." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Orbitron:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #030014;
+      --panel: rgba(255,255,255,0.02);
+      --panel-hover: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.08);
+      --accent-p: #6366f1;
+      --accent-s: #d946ef;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --radius: 20px;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh; overflow-x: hidden;
+      background-image:
+        radial-gradient(circle at 15% 50%, rgba(99,102,241,0.15), transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(217,70,239,0.15), transparent 25%);
+    }
+    h1, h2, h3, .brand { font-family: 'Outfit', sans-serif; }
+
+    /* ── Navbar ─────────────────────────────────────────────────── */
+    .navbar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 18px 40px; border-bottom: 1px solid var(--border);
+      background: rgba(3,0,20,0.6); backdrop-filter: blur(20px);
+      position: sticky; top: 0; z-index: 50;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+      font-family: 'Orbitron', sans-serif;
+    }
+    .brand-icon {
+      display: flex; justify-content: center; align-items: center;
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent-p), var(--accent-s));
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(217, 70, 239, 0.4), inset 0 0 10px rgba(255,255,255,0.2);
+      font-size: 1.3rem; color: white;
+    }
+    .brand-text {
+      font-size: 1.6rem; font-weight: 800; letter-spacing: 1px;
+      background: linear-gradient(to right, #ffffff, #c4b5fd);
+      -webkit-background-clip: text; color: transparent;
+      filter: drop-shadow(0 0 8px rgba(196, 181, 253, 0.4));
+    }
+
+    .nav-badge {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.82rem; color: var(--muted);
+    }
+    .live-dot {
+      width: 8px; height: 8px; background: var(--success);
+      border-radius: 50%; box-shadow: 0 0 8px var(--success);
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .container {
+      max-width: 1500px; margin: 0 auto; padding: 28px 40px;
+      display: grid; grid-template-columns: 1fr 380px; gap: 28px;
+    }
+    @media (max-width: 1024px) {
+      .container { grid-template-columns: 1fr; padding: 20px; }
+    }
+
+    /* ── Glass Panel ─────────────────────────────────────────────── */
+    .glass-panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 22px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    }
+
+    /* ── Status Bar ──────────────────────────────────────────────── */
+    #status-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 18px; padding: 12px 18px;
+      background: rgba(0,0,0,0.35); border-radius: 12px; border: 1px solid var(--border);
+    }
+    .status-left { display: flex; align-items: center; gap: 10px; }
+    #status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 10px currentColor; transition: background 0.3s; }
+    #status-dot.ready   { background: var(--success); }
+    #status-dot.error   { background: var(--danger); }
+    #status-dot.running { background: var(--accent-s); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+    #status-msg { font-size: 0.9rem; font-weight: 500; }
+    #fps-display { font-family: 'Orbitron'; font-size: 0.85rem; font-weight: 700; color: var(--accent-s); letter-spacing: 2px; }
+
+    .tabs { display: flex; gap: 8px; margin-bottom: 22px; background: transparent; padding: 0; border-radius: 0; width: fit-content; }
+    .tab {
+      padding: 11px 16px; text-align: center; font-weight: 600; font-size: 0.88rem;
+      border-radius: 10px; cursor: pointer; color: var(--muted); transition: all 0.25s; user-select: none; white-space: nowrap;
+      border: none; background: rgba(255,255,255,0.06);
+    }
+    .tab.active { background: linear-gradient(135deg, var(--accent-p), var(--accent-s)); color: white; box-shadow: 0 4px 15px rgba(99,102,241,0.4); }
+    .tab:not(.active):hover { color: white; background: rgba(255,255,255,0.1); }
+
+    /* ── Video Wrapper ────────────────────────────────────────────── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .video-wrapper {
+      position: relative; width: 100%; aspect-ratio: 16/9;
+      background: #000; border-radius: 14px; overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: inset 0 0 60px rgba(0,0,0,0.9), 0 0 30px rgba(99,102,241,0.05);
+    }
+    #webcam-video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: fill; /* fill = coordinates match canvas exactly */
+      filter: brightness(0.85) contrast(1.1);
+    }
+    #overlay-canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    /* HUD overlay */
+    .hud-overlay {
+      position: absolute; top: 14px; left: 14px; z-index: 3;
+      font-family: 'Orbitron'; font-size: 0.75rem; color: #00fff7;
+      text-shadow: 0 0 6px #00fff7; letter-spacing: 1px;
+      animation: blink 2s infinite alternate;
+    }
+    @keyframes blink { from{opacity:.7} to{opacity:1} }
+
+    /* Image Panel */
+    .img-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
+    @media (max-width: 640px) { .img-grid { grid-template-columns: 1fr; } }
+
+    /* Upload Box */
+    .img-box {
+      background: rgba(99,102,241,0.04);
+      border: 2px dashed rgba(99,102,241,0.35);
+      border-radius: 16px; aspect-ratio: 4/3;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; cursor: pointer; overflow: hidden;
+      position: relative; transition: all 0.35s ease;
+      box-shadow: inset 0 0 30px rgba(99,102,241,0.05);
+    }
+    .img-box:hover {
+      border-color: var(--accent-p);
+      background: rgba(99,102,241,0.1);
+      box-shadow: 0 0 30px rgba(99,102,241,0.2), inset 0 0 30px rgba(99,102,241,0.08);
+      transform: translateY(-2px);
+    }
+    .img-box img, .img-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+
+    /* Upload Box Placeholder */
+    .img-placeholder {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      color: var(--muted); font-size: 0.85rem; text-align: center; padding: 16px;
+    }
+    .img-placeholder .upload-icon {
+      font-size: 2.8rem; line-height: 1;
+      animation: float 3s ease-in-out infinite;
+    }
+    .img-placeholder .upload-label {
+      font-weight: 600; font-size: 0.9rem; color: #a5b4fc;
+    }
+    .img-placeholder .upload-sub {
+      font-size: 0.75rem; color: var(--muted); opacity: 0.7;
+    }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+
+    /* Result Box */
+    .result-box {
+      background: rgba(217,70,239,0.04);
+      border: 2px solid rgba(217,70,239,0.2);
+      border-radius: 16px; aspect-ratio: 4/3;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; overflow: hidden;
+      position: relative; transition: all 0.35s ease;
+      box-shadow: inset 0 0 30px rgba(217,70,239,0.05);
+    }
+    .result-box img, .result-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    .result-placeholder {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      color: var(--muted); font-size: 0.85rem; text-align: center; padding: 16px;
+    }
+    .result-placeholder .result-icon { font-size: 2.8rem; line-height: 1; opacity: 0.5; }
+    .result-placeholder .result-label { font-weight: 600; font-size: 0.9rem; color: #e879f9; opacity: 0.7; }
+    .result-placeholder .result-sub { font-size: 0.75rem; color: var(--muted); opacity: 0.5; }
+
+    /* Corner scan lines for result box */
+    .result-box::before, .result-box::after {
+      content: ''; position: absolute; width: 24px; height: 24px; opacity: 0.4;
+    }
+    .result-box::before { top: 10px; left: 10px; border-top: 2px solid var(--accent-s); border-left: 2px solid var(--accent-s); }
+    .result-box::after  { bottom: 10px; right: 10px; border-bottom: 2px solid var(--accent-s); border-right: 2px solid var(--accent-s); }
+
+    /* Detection result tags */
+    #det-results { padding: 12px; min-height: 80px; max-height: 280px; overflow-y: auto; }
+    .det-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+      padding: 5px 12px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
+      margin: 3px; color: #c4b5fd; animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+    .det-tag .conf { opacity: 0.65; font-weight: 400; font-size: 0.78rem; }
+
+    /* ── Sidebar ─────────────────────────────────────────────────── */
+    .sidebar-header {
+      font-family: 'Outfit'; font-size: 1.1rem; font-weight: 700;
+      margin-bottom: 16px; display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-header::before { content: ''; width: 4px; height: 18px; background: linear-gradient(to bottom, var(--accent-p), var(--accent-s)); border-radius: 2px; flex-shrink: 0; }
+
+    /* ── Buttons ─────────────────────────────────────────────────── */
+    .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 24px; }
+    .btn-full { grid-column: 1 / -1; }
+    button {
+      padding: 11px 16px; border: none; border-radius: 10px;
+      font-family: 'Inter'; font-weight: 600; font-size: 0.88rem;
+      cursor: pointer; transition: all 0.25s;
+      display: flex; justify-content: center; align-items: center; gap: 7px;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-p), var(--accent-s));
+      color: white; box-shadow: 0 4px 15px rgba(99,102,241,0.3);
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99,102,241,0.45); }
+    .btn-stop {
+      background: rgba(239,68,68,0.1); color: var(--danger);
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .btn-stop:hover:not(:disabled) { background: rgba(239,68,68,0.2); }
+    .btn-record {
+      background: rgba(217,70,239,0.1); color: var(--accent-s);
+      border: 1px solid rgba(217,70,239,0.3);
+    }
+    .btn-record:hover:not(:disabled) { background: rgba(217,70,239,0.2); }
+    .btn-record.recording {
+      background: var(--danger); color: white;
+      border-color: var(--danger); animation: pulse 1.5s infinite;
+    }
+    .btn-ghost {
+      background: rgba(255,255,255,0.06); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+
+    /* ── Sliders ─────────────────────────────────────────────────── */
+    .slider-group { margin-bottom: 18px; }
+    .slider-group label {
+      display: flex; justify-content: space-between;
+      font-size: 0.82rem; color: var(--muted); margin-bottom: 8px; font-weight: 500;
+    }
+    .slider-group .val { color: white; font-weight: 700; }
+    input[type=range] {
+      width: 100%; -webkit-appearance: none; appearance: none;
+      background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 18px;
+      background: linear-gradient(135deg, var(--accent-p), var(--accent-s));
+      border-radius: 50%; cursor: pointer;
+      box-shadow: 0 0 10px rgba(217,70,239,0.5);
+    }
+
+    /* ── Loading Overlay ─────────────────────────────────────────── */
+    #loading-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(3,0,20,0.95); backdrop-filter: blur(12px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+    }
+    #loading-overlay.hidden { display: none; }
+    .spinner {
+      width: 64px; height: 64px;
+      border: 4px solid rgba(255,255,255,0.08);
+      border-top-color: var(--accent-s);
+      border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 24px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .load-title { font-family: 'Outfit'; font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+    .load-bar-wrap { width: 280px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; margin: 16px 0; overflow: hidden; }
+    .load-bar { height: 100%; background: linear-gradient(90deg, var(--accent-p), var(--accent-s)); border-radius: 3px; transition: width 0.4s ease; }
+    #load-sub { color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="load-title" id="load-msg">Loading AI Model...</div>
+  <div class="load-bar-wrap"><div class="load-bar" id="load-bar" style="width:5%"></div></div>
+  <div id="load-sub">Downloading COCO-SSD via TensorFlow.js</div>
+</div>
+
+<!-- Navbar -->
+<header class="navbar">
+  <div class="brand">
+    <div class="brand-icon">👁️</div>
+    <div class="brand-text">OmniVision AI</div>
+  </div>
+  <div class="nav-badge">
+    <div class="live-dot"></div>
+    100% Client-Side · TF.js COCO-SSD · 80 Classes
+  </div>
+</header>
+
+<!-- Dashboard -->
+<div class="container">
+
+  <!-- LEFT: Camera / Image -->
+  <main>
+    <div class="glass-panel" style="padding:14px">
+
+      <div id="status-bar">
+        <div class="status-left">
+          <div id="status-dot"></div>
+          <span id="status-msg">Loading model…</span>
+        </div>
+        <span id="fps-display">-- FPS</span>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="webcam">📷 Live Camera</div>
+        <div class="tab" data-tab="image">🖼 Image Inference</div>
+      </div>
+
+      <!-- Webcam Panel -->
+      <div class="panel active" id="panel-webcam">
+        <div class="video-wrapper">
+          <video id="webcam-video" autoplay muted playsinline></video>
+          <canvas id="overlay-canvas"></canvas>
+          <div class="hud-overlay" id="hud-text">🧠 AI VISION ACTIVE</div>
+        </div>
+      </div>
+
+      <!-- Image Panel -->
+      <div class="panel" id="panel-image">
+        <div class="img-grid">
+
+          <!-- Upload Box -->
+          <div class="img-box" id="upload-box" onclick="document.getElementById('file-input').click()">
+            <div class="img-placeholder">
+              <div class="upload-icon">📤</div>
+              <div class="upload-label">Click to Upload Image</div>
+              <div class="upload-sub">JPG, PNG, WEBP supported</div>
+            </div>
+            <img id="upload-preview" style="display:none" alt="Preview" />
+          </div>
+
+          <!-- Result Box -->
+          <div class="result-box">
+            <div class="result-placeholder" id="result-placeholder">
+              <div class="result-icon">🎯</div>
+              <div class="result-label">Detection Result</div>
+              <div class="result-sub">Run detection to see output</div>
+            </div>
+            <canvas id="result-canvas" style="display:none"></canvas>
+          </div>
+
+        </div>
+        <input type="file" id="file-input" accept="image/*" style="display:none" />
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn-primary" id="btn-detect-img" disabled style="flex:2">🔍 Detect Objects</button>
+          <button class="btn-stop" id="btn-clear-img" disabled style="flex:1">🗑 Clear</button>
+        </div>
+        <div id="img-det-results" style="margin-top:14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:14px;min-height:60px;font-size:.85rem;color:var(--muted)">
+          Upload an image and click Detect.
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- RIGHT: Sidebar -->
+  <aside>
+    <div class="glass-panel" style="margin-bottom:20px">
+      <div class="sidebar-header">Action Hub</div>
+      <div class="btn-grid">
+        <button class="btn-primary" id="btn-start">▶ Start</button>
+        <button class="btn-stop" id="btn-stop" disabled>⏹ Stop</button>
+        <button class="btn-record btn-full" id="btn-record" disabled>⏺ Record Session</button>
+        <button class="btn-ghost btn-full" id="btn-test-ntfy">🔔 Test Push Alert</button>
+      </div>
+
+      <div class="sidebar-header">Configuration</div>
+      <div class="slider-group">
+        <label>Confidence <span class="val" id="conf-val">55%</span></label>
+        <input type="range" id="conf-slider" min="20" max="95" value="55" step="5" />
+      </div>
+    </div>
+
+    <div class="glass-panel">
+      <div class="sidebar-header">Live Detections</div>
+      <div id="det-results">
+        <div style="color:var(--muted);font-size:.85rem;text-align:center;padding:20px 0">
+          Waiting for detections…
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- TF.js + COCO-SSD -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+<script>
+'use strict';
+
+// ── Globals ──────────────────────────────────────────────────────────────────
+let model    = null;
+let running  = false;
+let animId   = null;
+let lastSpoken = {};
+const SPEAK_COOLDOWN = 4000;
+
+// ── Allowed Object Classes (matches COCO-SSD vocabulary) ─────────────────────
+// Only these class names will be shown — filters out irrelevant detections.
+const ALLOWED_CLASSES = new Set([
+  // People
+  'person',
+  // Household
+  'bottle', 'cup', 'wine glass', 'plate', 'bowl', 'spoon', 'fork', 'knife',
+  'chair', 'couch', 'bed', 'dining table', 'toilet',
+  'tv', 'laptop', 'cell phone', 'remote', 'keyboard', 'mouse',
+  'clock', 'book', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush',
+  'microwave', 'oven', 'toaster', 'sink', 'potted plant',
+  // Personal
+  'handbag', 'backpack', 'suitcase', 'umbrella', 'tie',
+  // Food & Kitchen
+  'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
+  'hot dog', 'pizza', 'donut', 'cake',
+  // Outdoor & Transport
+  'car', 'motorcycle', 'bicycle', 'bus', 'truck', 'train', 'boat', 'fan blades',
+  'traffic light', 'stop sign', 'parking meter', 'bench', 'fire hydrant',
+  // Sports
+  'sports ball', 'kite', 'baseball bat', 'baseball glove',
+  'skateboard', 'surfboard', 'tennis racket', 'frisbee',
+]);
+
+// ── DOM Refs ─────────────────────────────────────────────────────────────────
+const statusDot   = document.getElementById('status-dot');
+const statusMsg   = document.getElementById('status-msg');
+const fpsDisplay  = document.getElementById('fps-display');
+const loadOverlay = document.getElementById('loading-overlay');
+const loadBar     = document.getElementById('load-bar');
+const loadMsg     = document.getElementById('load-msg');
+const loadSub     = document.getElementById('load-sub');
+const hudText     = document.getElementById('hud-text');
+
+const video       = document.getElementById('webcam-video');
+const canvas      = document.getElementById('overlay-canvas');
+const ctx         = canvas.getContext('2d');
+
+const confSlider  = document.getElementById('conf-slider');
+const confVal     = document.getElementById('conf-val');
+
+const btnStart    = document.getElementById('btn-start');
+const btnStop     = document.getElementById('btn-stop');
+const btnRecord   = document.getElementById('btn-record');
+const btnTestNtfy = document.getElementById('btn-test-ntfy');
+
+const fileInput   = document.getElementById('file-input');
+const uploadBox   = document.getElementById('upload-box');
+const uploadPreview = document.getElementById('upload-preview');
+const resultCanvas  = document.getElementById('result-canvas');
+const resultPH      = document.getElementById('result-placeholder');
+const btnDetectImg  = document.getElementById('btn-detect-img');
+const btnClearImg   = document.getElementById('btn-clear-img');
+const detResults    = document.getElementById('det-results');
+const imgDetResults = document.getElementById('img-det-results');
+
+// ── Status ───────────────────────────────────────────────────────────────────
+function setStatus(type, msg) {
+  statusDot.className = type;
+  statusMsg.textContent = msg;
+}
+
+// ── Load Model ───────────────────────────────────────────────────────────────
+async function loadModel() {
+  setStatus('', 'Loading TF.js COCO-SSD model…');
+  loadBar.style.width = '20%';
+  loadMsg.textContent = 'Initialising TensorFlow.js…';
+
+  try {
+    loadBar.style.width = '50%';
+    loadMsg.textContent = 'Downloading COCO-SSD weights…';
+    model = await cocoSsd.load({ base: 'mobilenet_v2' });
+    loadBar.style.width = '100%';
+    loadMsg.textContent = '✅ Model Ready!';
+    await new Promise(r => setTimeout(r, 400));
+    loadOverlay.classList.add('hidden');
+    setStatus('ready', 'Model ready — click Start Camera or upload an image');
+  } catch(e) {
+    setStatus('error', 'Model load failed: ' + e.message);
+    loadMsg.textContent = '❌ Failed to load model';
+    loadSub.textContent = e.message;
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Sliders ───────────────────────────────────────────────────────────────────
+confSlider.addEventListener('input', () => confVal.textContent = confSlider.value + '%');
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+btnStart.addEventListener('click', startCamera);
+btnStop.addEventListener('click', stopCamera);
+
+async function startCamera() {
+  if (!model) { setStatus('error', 'Model not loaded yet'); return; }
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    // Set canvas dimensions to match video once
+    video.addEventListener('loadedmetadata', () => {
+      canvas.width  = video.videoWidth  || 640;
+      canvas.height = video.videoHeight || 480;
+    }, { once: true });
+    // Fallback if already loaded
+    if (video.videoWidth) {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    running = true;
+    btnStart.disabled  = true;
+    btnStop.disabled   = false;
+    btnRecord.disabled = false;
+    setStatus('running', 'AI Detection Running…');
+    hudText.textContent = '🧠 AI VISION ACTIVE';
+    detectLoop();
+  } catch(e) {
+    setStatus('error', 'Camera error: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if (isRecording) toggleRecording();
+  if (animId) cancelAnimationFrame(animId);
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  btnStart.disabled  = false;
+  btnStop.disabled   = true;
+  btnRecord.disabled = true;
+  fpsDisplay.textContent = '-- FPS';
+  hudText.textContent = '';
+  setStatus('ready', 'Camera stopped');
+}
+
+// ── FPS Tracking ─────────────────────────────────────────────────────────────
+const frameTimes = [];
+let lastFrameTime = performance.now();
+
+// ── Temporal Smoothing ───────────────────────────────────────────────────────
+// An object must appear in REQUIRED_HITS consecutive frames before being shown.
+// This eliminates single-frame ghost detections (flickering false positives).
+const REQUIRED_HITS  = 3;   // must appear 3 frames in a row
+const MISS_TOLERANCE = 2;   // allow 2 missed frames before removing
+const trackerMap = new Map(); // key = class+approx_position, value = {hits, misses, pred}
+
+function getBoxKey(p) {
+  // Bucket position to nearest 60px grid so nearby boxes match across frames
+  const gx = Math.round(p.bbox[0] / 60);
+  const gy = Math.round(p.bbox[1] / 60);
+  return `${p.class}_${gx}_${gy}`;
+}
+
+function updateTracker(rawPredictions) {
+  const seenKeys = new Set();
+
+  for (const p of rawPredictions) {
+    const key = getBoxKey(p);
+    seenKeys.add(key);
+    if (trackerMap.has(key)) {
+      const entry = trackerMap.get(key);
+      entry.hits   = Math.min(entry.hits + 1, REQUIRED_HITS + 2);
+      entry.misses = 0;
+      entry.pred   = p;  // update with latest position
+    } else {
+      trackerMap.set(key, { hits: 1, misses: 0, pred: p });
+    }
+  }
+
+  // Increment miss count for objects not seen this frame
+  for (const [key, entry] of trackerMap) {
+    if (!seenKeys.has(key)) {
+      entry.misses++;
+      if (entry.misses > MISS_TOLERANCE) trackerMap.delete(key);
+    }
+  }
+
+  // Only return objects that have been seen enough consecutive frames
+  return [...trackerMap.values()]
+    .filter(e => e.hits >= REQUIRED_HITS)
+    .map(e => e.pred);
+}
+
+async function detectLoop() {
+  if (!running) return;
+
+  const now = performance.now();
+  frameTimes.push(now - lastFrameTime);
+  if (frameTimes.length > 20) frameTimes.shift();
+  const avgDt = frameTimes.reduce((a,b) => a+b, 0) / frameTimes.length;
+  fpsDisplay.textContent = Math.round(1000 / avgDt) + ' FPS';
+  lastFrameTime = now;
+
+  if (video.readyState >= 2) {
+    const confThresh = parseInt(confSlider.value) / 100;
+
+    // Max 20 detections — fewer = more accurate, less noise
+    const rawPredictions = await model.detect(video, 20, confThresh);
+
+    // Relabel misclassifications (COCO-SSD often sees ceiling fans as airplanes, and monitors as tvs)
+    rawPredictions.forEach(p => { 
+      if (p.class === 'airplane') p.class = 'fan blades'; 
+      if (p.class === 'tv') p.class = 'monitor';
+    });
+
+    // Filter: 1) Only allowed classes  2) No tiny boxes (noise)
+    const minBoxArea = (canvas.width * canvas.height) * 0.005; // must be > 0.5% of frame
+    const predictions = rawPredictions.filter(p => {
+      const [, , w, h] = p.bbox;
+      return ALLOWED_CLASSES.has(p.class)     // only show classes from our list
+          && (w * h) >= minBoxArea            // ignore tiny ghost boxes
+          && p.score >= confThresh;           // above confidence threshold
+    });
+
+    // Draw frame
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Fix: If recording, we must draw the video onto the canvas to capture it
+    if (isRecording) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
+    
+    renderPredictions(predictions);
+    triggerAlerts(predictions);
+  }
+
+  animId = requestAnimationFrame(detectLoop);
+}
+
+// ── Render Bounding Boxes — Confidence Color Coded ───────────────────────────
+// Green  = 85%+  (very confident)
+// Yellow = 70-84% (confident)
+// Red    = below 70% (uncertain)
+function renderPredictions(predictions) {
+  const scaleX = canvas.width  / (video.videoWidth  || canvas.width);
+  const scaleY = canvas.height / (video.videoHeight || canvas.height);
+
+  predictions.forEach(pred => {
+    const [x, y, w, h] = pred.bbox;
+    const sx = x * scaleX, sy = y * scaleY, sw = w * scaleX, sh = h * scaleY;
+    const conf = Math.round(pred.score * 100);
+    const label = pred.class;
+
+    // ── Confidence-based color ──────────────────────────────────────────────
+    let boxColor, glowColor;
+    if (conf >= 85) {
+      boxColor = '#00e676'; glowColor = 'rgba(0,230,118,0.6)';   // 🟢 Green  — High
+    } else if (conf >= 70) {
+      boxColor = '#ffea00'; glowColor = 'rgba(255,234,0,0.5)';   // 🟡 Yellow — Medium
+    } else {
+      boxColor = '#ff1744'; glowColor = 'rgba(255,23,68,0.5)';   // 🔴 Red    — Low
+    }
+
+    // Glowing bounding box
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 14;
+    ctx.strokeStyle = boxColor;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.rect(sx, sy, sw, sh);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Corner accents
+    const cs = 16;
+    ctx.strokeStyle = boxColor;
+    ctx.lineWidth = 3;
+    [[sx,sy],[sx+sw,sy],[sx,sy+sh],[sx+sw,sy+sh]].forEach(([cx,cy]) => {
+      const dx = cx === sx ? 1 : -1, dy = cy === sy ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy); ctx.lineTo(cx + dx*cs, cy);
+      ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + dy*cs);
+      ctx.stroke();
+    });
+
+    // Label background
+    const labelText = `${label}  ${conf}%`;
+    ctx.font = 'bold 13px Orbitron, monospace';
+    const tw = ctx.measureText(labelText).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.80)';
+    ctx.fillRect(sx, sy - 26, tw + 14, 24);
+
+    // Label text with matching color
+    ctx.fillStyle = boxColor;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 6;
+    ctx.fillText(labelText, sx + 7, sy - 8);
+    ctx.shadowBlur = 0;
+  });
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+const lastAlertTime = new Map();
+const ALERT_COOLDOWN_MS = 4000;
+
+function triggerAlerts(predictions) {
+  const now = Date.now();
+  const resDiv = document.getElementById('det-results');
+
+  if (predictions.length === 0) return;
+  if (resDiv.innerHTML.includes('Waiting')) resDiv.innerHTML = '';
+
+  const uniqueClasses = [...new Set(predictions.map(p => p.class))];
+  for (const label of uniqueClasses) {
+    const lastTime = lastAlertTime.get(label) || 0;
+    if (now - lastTime < ALERT_COOLDOWN_MS) continue;
+
+    // Live log
+    const t = document.createElement('span');
+    t.className = 'det-tag';
+    const pred = predictions.find(p => p.class === label);
+    t.innerHTML = label + ` <span class="conf">${Math.round(pred.score*100)}%</span>`;
+    resDiv.prepend(t);
+    if (resDiv.children.length > 18) resDiv.removeChild(resDiv.lastChild);
+
+    // Speech
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(label);
+      u.lang = 'en-US'; u.rate = 1.1;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    }
+
+    // Browser notification
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Object Detected", {
+        body: `Detected: ${label} (${Math.round(pred.score*100)}%)`,
+        icon: 'https://huggingface.co/front/assets/huggingface_logo-noborder.svg'
+      });
+    }
+
+    // ntfy push
+    sendNtfy(`Detected: ${label} (${Math.round(pred.score*100)}% confidence)`, 'camera,rotating_light');
+    lastAlertTime.set(label, now);
+  }
+}
+
+// ── ntfy Push Notifications ───────────────────────────────────────────────────
+function sendNtfy(message, tag = 'rotating_light') {
+  // Use query parameters instead of headers to avoid CORS preflight issues
+  const url = new URL('https://ntfy.envs.net/my_alert');
+  url.searchParams.append('title', '🎯 Object Detection Alert');
+  url.searchParams.append('tags', tag);
+  url.searchParams.append('click', 'https://huggingface.co/spaces/rajiv-ramteke/Real-Time-Object-Detection');
+
+  fetch(url.toString(), {
+    method: 'POST',
+    body: message
+  }).catch(err => console.warn('ntfy error:', err));
+}
+btnTestNtfy.addEventListener('click', () => sendNtfy('Test alert! Dashboard is connected ✅', 'tada'));
+
+// ── Recording ─────────────────────────────────────────────────────────────────
+let mediaRecorder, recordedChunks = [], isRecording = false;
+
+btnRecord.addEventListener('click', toggleRecording);
+
+function toggleRecording() {
+  if (!isRecording) {
+    // Combine video + canvas overlay into one recorded stream
+    const videoStream = video.srcObject;
+    const canvasStream = canvas.captureStream(30);
+    // Use canvas stream for recording (contains overlay)
+    mediaRecorder = new MediaRecorder(canvasStream, { mimeType: 'video/webm' });
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `detection_${Date.now()}.webm`;
+      a.click(); URL.revokeObjectURL(url);
+      recordedChunks = [];
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    btnRecord.textContent = '⏹ Stop Recording';
+    btnRecord.classList.add('recording');
+  } else {
+    mediaRecorder.stop();
+    isRecording = false;
+    btnRecord.textContent = '⏺ Record Session';
+    btnRecord.classList.remove('recording');
+  }
+}
+
+// ── Image Upload & Inference ──────────────────────────────────────────────────
+let uploadedImg = null;
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  uploadPreview.src = url;
+  uploadPreview.style.display = 'block';
+  uploadedImg = new Image();
+  uploadedImg.src = url;
+  uploadedImg.onload = () => {
+    btnDetectImg.disabled = false;
+    btnClearImg.disabled = false;
+    resultCanvas.style.display = 'none';
+    resultPH.style.display = 'flex';
+    imgDetResults.innerHTML = 'Click Detect to analyze.';
+  };
+});
+
+btnDetectImg.addEventListener('click', async () => {
+  if (!model || !uploadedImg) return;
+  btnDetectImg.disabled = true;
+  btnDetectImg.textContent = '⏳ Detecting…';
+  const confThresh = parseInt(confSlider.value) / 100;
+  const predictions = await model.detect(uploadedImg, 50, confThresh);
+
+  // Relabel misclassifications
+  predictions.forEach(p => { 
+    if (p.class === 'airplane') p.class = 'fan blades'; 
+    if (p.class === 'tv') p.class = 'monitor';
+  });
+
+  // Draw on result canvas
+  const W = uploadedImg.naturalWidth, H = uploadedImg.naturalHeight;
+  resultCanvas.width = W; resultCanvas.height = H;
+  const rCtx = resultCanvas.getContext('2d');
+  rCtx.drawImage(uploadedImg, 0, 0);
+  // Draw boxes on image
+  predictions.forEach(pred => {
+    const [x, y, w, h] = pred.bbox;
+    rCtx.shadowColor = '#00fff7'; rCtx.shadowBlur = 10;
+    rCtx.strokeStyle = '#00fff7'; rCtx.lineWidth = 3;
+    rCtx.beginPath(); rCtx.rect(x, y, w, h); rCtx.stroke();
+    rCtx.shadowBlur = 0;
+    rCtx.font = `bold ${Math.max(14, W/40)}px sans-serif`;
+    rCtx.fillStyle = 'rgba(0,0,0,0.7)';
+    const tw = rCtx.measureText(`${pred.class} ${Math.round(pred.score*100)}%`).width;
+    rCtx.fillRect(x, y - 26, tw + 14, 24);
+    rCtx.fillStyle = '#00fff7';
+    rCtx.fillText(`${pred.class} ${Math.round(pred.score*100)}%`, x + 7, y - 8);
+  });
+  resultCanvas.style.display = 'block';
+  resultPH.style.display = 'none';
+
+  const tags = predictions.map(p =>
+    `<span class="det-tag">${p.class} <span class="conf">${Math.round(p.score*100)}%</span></span>`
+  ).join('');
+  imgDetResults.innerHTML = `<b style="font-size:.8rem;color:var(--muted)">DETECTIONS (${predictions.length})</b><br><br>` +
+    (tags || '<span style="color:var(--muted)">No objects above threshold.</span>');
+
+  // Trigger push notifications & speech for image detection
+  triggerAlerts(predictions);
+
+  btnDetectImg.disabled = false;
+  btnDetectImg.textContent = '🔍 Detect Objects';
+});
+
+btnClearImg.addEventListener('click', () => {
+  uploadedImg = null;
+  uploadPreview.style.display = 'none'; uploadPreview.src = '';
+  resultCanvas.style.display = 'none'; resultPH.style.display = 'flex';
+  btnDetectImg.disabled = true; btnClearImg.disabled = true;
+  imgDetResults.innerHTML = 'Upload an image and click Detect.';
+  fileInput.value = '';
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadModel();
+</script>
+</body>
+</html>
